@@ -1,101 +1,438 @@
-#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_TCS34725.h>
 #include "robotka.h"
+#include "stepper_motor.h"
+#include "funkce.h"
+#include "asynchroni_pohyb.h"
 
-//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-
-// Nesmím předělávat --- já NZ
-
-
-//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-
-
-
-
-
-
-
+// =============================================================================
+//  MAIN_FINAL — Hlavní řídící program RBCX (Slave)
+// =============================================================================
+//
+//  VLÁKNO 1 (hlavní): while(true) — vykonává pohyby podle příkazů
+//  VLÁKNO 2 (UART):   přijímá příkazy z ESP32, odesílá stav
+//
+//  Komunikační protokol MUSÍ odpovídat mozek.h na ESP32 (Master)!
+//
+// =============================================================================
 
 
 
+rkConfig cfg;
 
+char nase_barva = 'R';
+volatile bool g_puk_roztrizen = false;
+volatile bool g_zadost_o_srovnani = false;
+volatile int g_lajny_bez_puku = 0;
+volatile int pocet_roz_p = 0;
+volatile bool g_ujeta_lajna = false;
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
 
+// =============================================================================
+//  KOMUNIKAČNÍ PROTOKOL (1:1 s mozek.h!)
+// =============================================================================
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// --- ESP32 → RBCX (3 bajty) ---
 typedef struct __attribute__((packed)) {
-    uint8_t sensor_id;
-    uint16_t distance; // mm
-} SensorData;
+    uint8_t cmd;
+    int16_t param;
+    int16_t param2; // Přidáno pro cílovou vzdálenost
+} EspCommand;
 
-SensorData received_data;
+// --- RBCX → ESP32 (11 bajtů) ---
+typedef struct __attribute__((packed)) {
+    uint8_t status;       // STAT_READY / STAT_BUSY / STAT_DONE
+    uint8_t cmd_id;       // Potvrzení: k jakému příkazu se stav váže
+    uint8_t buttons;      // Bit 0=UP, 1=DOWN, 2=LEFT, 3=RIGHT
+    int16_t pocet_puku;   // Počet nasbíraných puků naší barvy
+    int16_t param;        // Doplňkový parametr (záleží na kontextu)
+    uint16_t uz1_mm;      // Ultrazvuk 1 (levý zadní) v mm
+    uint16_t uz3_mm;      // Ultrazvuk 3 (pravý zadní) v mm
+} RbcxStatus;
 
+// Příkazy (ESP32 → RBCX) — MUSÍ odpovídat CmdID v mozek.h!
+enum CmdID : uint8_t {
+    CMD_NOP             = 0x00,  // Nic nedělej (jen pošli stav)
+    CMD_STOP            = 0x01,  // Zastav vše
+    CMD_JED_SBIREJ      = 0x02,  // Jeď dopředu + sbírej (param = rychlost %)
+    CMD_OTOC_VLEVO      = 0x03,  // Otoč se doleva (param = úhel °)
+    CMD_OTOC_VPRAVO     = 0x04,  // Otoč se doprava (param = úhel °)
+    CMD_COUVEJ          = 0x05,  // Couvej (param = vzdálenost mm)
+    CMD_VYLOZ           = 0x06,  // Otevření zásobníků (jen otevři!)
+    CMD_ZAVRI_ZASOBNIKY = 0x07,  // Zavření zásobníků + reset počtu puků
+    CMD_TOC_KONTINUALNE = 0x08,  // Zapne rotaci na místě a neukončí ji (čeká na CMD_STOP z ESP32)
+    CMD_LIDAR_ERROR     = 0x09,  // Průběžná chyba úhlu z LiDARu (param = odchylka v desetinách stupně)
+    CMD_OTEVRI_SOUPER   = 0x0A,  // Otevření zásobníku soupeřových puků
+    CMD_ZAVRI_SOUPER    = 0x0B,  // Zavření zásobníku soupeřových puků
+};
 
+// Statusy (RBCX → ESP32) — MUSÍ odpovídat StatID v mozek.h!
+enum StatID : uint8_t {
+    STAT_READY = 0x80,
+    STAT_BUSY  = 0x81,
+    STAT_DONE  = 0x82,
+};
 
+// Helper: jméno příkazu pro výpis
+const char* cmd_name(uint8_t cmd) {
+    switch(cmd) {
+        case CMD_NOP:             return "NOP";
+        case CMD_STOP:            return "STOP";
+        case CMD_JED_SBIREJ:      return "JED_SBIREJ";
+        case CMD_OTOC_VLEVO:      return "OTOC_VLEVO";
+        case CMD_OTOC_VPRAVO:     return "OTOC_VPRAVO";
+        case CMD_COUVEJ:          return "COUVEJ";
+        case CMD_VYLOZ:           return "VYLOZ";
+        case CMD_ZAVRI_ZASOBNIKY: return "ZAVRI_ZASOBNIKY";
+        case CMD_TOC_KONTINUALNE: return "TOC_KONTINUALNE";
+        case CMD_LIDAR_ERROR:     return "LIDAR_ERROR";
+        case CMD_OTEVRI_SOUPER:   return "OTEVRI_SOUPER";
+        case CMD_ZAVRI_SOUPER:    return "ZAVRI_SOUPER";
+        default:                  return "???";
+    }
+}
+const char* stav_name(uint8_t s) {
+    switch(s) {
+        case STAT_READY: return "READY";
+        case STAT_BUSY:  return "BUSY";
+        case STAT_DONE:  return "DONE";
+        default:         return "???";
+    }
+}
 
+// =============================================================================
+//  GLOBÁLNÍ STAV
+// =============================================================================
 
+volatile uint8_t aktivni_prikaz = CMD_NOP;
+volatile int16_t aktivni_param  = 0;
+volatile int16_t aktivni_param2 = 0;
+volatile bool    novy_prikaz    = false;
+volatile uint8_t aktualni_stav  = STAT_READY;  // Co právě děláme
 
+// Ultrazvuky — měřeny periodicky v UART vlákně
+volatile uint16_t g_uz1_mm = 0;  // Ultrazvuk 1 (levý zadní)
+volatile uint16_t g_uz3_mm = 0;  // Ultrazvuk 3 (pravý zadní)
 
+// =============================================================================
+//  SESTAVENÍ STATUSU (přečte tlačítka + puky + stav)
+// =============================================================================
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-void setup() {
-    rkConfig cfg;
-    rkSetup(cfg);
-    printf("Robotka prijimac UART started!\n");
+RbcxStatus sestav_stav(int16_t extra_param = 0) {
+    auto& btns = rb::Manager::get().buttons();
     
-    // Inicializace UART komunikace
+    RbcxStatus s;
+    s.status = aktualni_stav;
+    s.cmd_id = aktivni_prikaz; // Echos the currently executing/finished command
+    
+    // Tlačítka jako bitová maska
+    s.buttons = 0;
+    if (btns.up())    s.buttons |= (1 << 0);  // bit 0
+    if (btns.down())  s.buttons |= (1 << 1);  // bit 1
+    if (btns.left())  s.buttons |= (1 << 2);  // bit 2
+    if (btns.right()) s.buttons |= (1 << 3);  // bit 3
+
+    if(byly_tlacitka) s.buttons |= (1 << 0);  // bit 0
+    
+    s.pocet_puku = pocet_nasich_puku;
+    s.param = extra_param;
+    s.uz1_mm = g_uz1_mm;
+    s.uz3_mm = g_uz3_mm;
+    
+    return s;
+}
+
+void posli_stav(int16_t extra_param = 0) {
+    RbcxStatus s = sestav_stav(extra_param);
+    rkUartSend(&s, sizeof(s));
+}
+
+// =============================================================================
+//  UART VLÁKNO — příjem příkazů z ESP32 + periodický stav
+// =============================================================================
+
+void uart_vlakno(void *pvParameters) {
+    EspCommand cmd;
+    unsigned long posledni_stav = 0;
+    unsigned long posledni_serial = 0;
+
+    while (true) {
+        // --- Příjem příkazů ---
+        if (rkUartReceive(&cmd, sizeof(cmd))) {
+            Serial.printf("\n>>> UART PRIJEM: %s  param=%d\n", cmd_name(cmd.cmd), cmd.param);
+
+            if (cmd.cmd == CMD_NOP) {
+                posli_stav();
+            } else if (cmd.cmd == CMD_LIDAR_ERROR) {
+                // Přišla korekce z LiDARu (v desetinách stupně)
+                g_lidar_error = cmd.param / 10.0f;
+            } else {
+                // Pokud přijde nový příkaz a jedeme, zastav
+                zastav_jizdu = true;
+                aktivni_prikaz = cmd.cmd;
+                aktivni_param  = cmd.param;
+                aktivni_param2 = cmd.param2;
+                novy_prikaz    = true;
+            }
+        }
+
+        // --- Periodické odesílání stavu přes UART (každých 200ms) ---
+        if (millis() - posledni_stav > 200) {
+            posledni_stav = millis();
+            // Měření ultrazvuků (každý ~30ms, ale děláme to jen při statusu)
+            g_uz1_mm = rkUltraMeasure(1);
+            g_uz3_mm = rkUltraMeasure(3);
+            posli_stav();
+        }
+
+        // --- Periodický výpis na Serial Monitor (každou 1s) ---
+        auto& btns = rb::Manager::get().buttons();
+        if (millis() - posledni_serial > 1000) {
+            posledni_serial = millis();
+            Serial.printf("[STAV] %s | BTN: U=%d D=%d L=%d R=%d | puky=%d | BATT: %dmV (%d%%)\n",
+                stav_name(aktualni_stav),
+                btns.up(), btns.down(), btns.left(), btns.right(),
+                pocet_nasich_puku,
+                rkBatteryVoltageMv(), rkBatteryPercent());
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(5)); // Sníženo z 20ms pro rychlejší reakci na STOP/změnu rychlosti
+    }
+}
+
+// =============================================================================
+//  SETUP + HLAVNÍ SMYČKA
+// =============================================================================
+
+void setup(){
+    Serial.begin(115200);
+    rkSetup(cfg);
+    delay(50);
+
+    init_stepper();
+
+    pinMode(21, INPUT_PULLUP);
+    pinMode(22, INPUT_PULLUP);
+    Wire.begin(21, 22, 400000);
+    Wire.setTimeOut(1);
+    rkColorSensorInit("front", Wire, tcs);
+
     rkUartInit();
 
-    printf("Cekam na data ze senzoru...\n");
-}
+    xTaskCreate(uart_vlakno, "UartVlakno", 4096, NULL, 2, NULL);
+    xTaskCreate(tridici_vlakno, "TridiciVlakno", 4096, NULL, 1, NULL);
 
-void loop() {
-    // Zkusíme přijmout data
-    if (rkUartReceive(&received_data, sizeof(received_data))) {
-        // Pokud jsme úspěšně přijali data, vypíšeme je
-        printf("Senzor ID: %d, Vzdalenost: %d mm\n", received_data.sensor_id, received_data.distance);
-        if(received_data.sensor_id == 3){
-          printf("-------------------------------------------------------- \n");
-          std::cout<<" "<<std::endl;
+    rkLedGreen(true);
+    // srovnej_trididlo(); // Počáteční kalibrace třídiče - ODSTRANĚNO (nyní na tlačítko DOWN)
+    Serial.println("=== RBCX READY ===");
+
+    // =========================================================================
+    //  HLAVNÍ SMYČKA
+    // =========================================================================
+
+    while (true) {
+
+        if (novy_prikaz) {
+            novy_prikaz = false;
+            uint8_t cmd = aktivni_prikaz;
+            int16_t param = aktivni_param;
+            int16_t param2 = aktivni_param2;
+
+            Serial.printf("\n========== PRIKAZ: %s  param=%d  param2=%d ==========\n", cmd_name(cmd), param, param2);
+
+            switch (cmd) {
+
+                case CMD_STOP:
+                    rkMotorsSetPower(0, 0);
+                    rkLedYellow(false);
+                    Serial.println(">> Motory zastaveny");
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    aktualni_stav = STAT_READY;
+                    break;
+
+                case CMD_JED_SBIREJ:
+                    rkLedYellow(true);
+                    zastav_jizdu = false;
+                    aktualni_stav = STAT_BUSY;
+                    posli_stav();
+                    Serial.printf(">> Jedu dopredu na %d%% a sbiram puky (cil: %d mm)...\n", param, param2);
+                    
+                    jed_a_sbirej((float)param, param2);
+                    g_ujeta_lajna = true;
+                    
+                    rkLedYellow(false);
+                    Serial.printf(">> Zastaveno. Nasbirano %d nasich puku.\n", pocet_nasich_puku);
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    byly_tlacitka = false;
+                    aktualni_stav = STAT_READY;
+                    break;
+
+                case CMD_OTOC_VLEVO:
+                    aktualni_stav = STAT_BUSY;
+                    posli_stav();
+                    
+                    if (pocet_roz_p >= 3) {
+                        g_zadost_o_srovnani = true;
+                        pocet_roz_p = 0;
+                        g_lajny_bez_puku = 0;
+                    } else if (g_ujeta_lajna && !g_puk_roztrizen) {
+                        g_lajny_bez_puku++;
+                        if (g_lajny_bez_puku >= 4) {
+                            g_zadost_o_srovnani = true;
+                            g_lajny_bez_puku = 0;
+                            Serial.println(">> Dlouho bez puku -> srovnavam trididlo");
+                        }
+                    }
+                    g_puk_roztrizen = false;
+                    g_ujeta_lajna = false;
+
+                    Serial.printf(">> Otacim se VLEVO o %d stupnu...\n", param);
+                    turn_on_spot_left((float)param, 30);
+                    Serial.println(">> Otoceno VLEVO.");
+
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    aktualni_stav = STAT_READY;
+                    break;
+
+                case CMD_OTOC_VPRAVO:
+                    aktualni_stav = STAT_BUSY;
+                    posli_stav();
+                    
+                    if (pocet_roz_p >= 3) {
+                        g_zadost_o_srovnani = true;
+                        pocet_roz_p = 0;
+                        g_lajny_bez_puku = 0;
+                    } else if (g_ujeta_lajna && !g_puk_roztrizen) {
+                        g_lajny_bez_puku++;
+                        if (g_lajny_bez_puku >= 4) {
+                            g_zadost_o_srovnani = true;
+                            g_lajny_bez_puku = 0;
+                            Serial.println(">> Dlouho bez puku -> srovnavam trididlo");
+                        }
+                    }
+                    g_puk_roztrizen = false;
+                    g_ujeta_lajna = false;
+
+                    Serial.printf(">> Otacim se VPRAVO o %d stupnu...\n", param);
+                    turn_on_spot_right((float)param, 30);
+                    Serial.println(">> Otoceno VPRAVO.");
+
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    aktualni_stav = STAT_READY;
+                    break;
+
+                case CMD_COUVEJ:
+                    aktualni_stav = STAT_BUSY;
+                    posli_stav();
+                    Serial.printf(">> Couvam o %d mm...\n", param);
+                    backward_acc((float)param, 40);
+                    Serial.println(">> Couvnuto.");
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    aktualni_stav = STAT_READY;
+                    break;
+
+                // ─────────────────────────────────────────────────
+                //  VYLOZ — jen OTEVŘE zásobníky (mozek.h pak posílá
+                //  CMD_JED_SBIREJ pro popojíždění a CMD_ZAVRI_ZASOBNIKY
+                //  pro uzavření)
+                // ─────────────────────────────────────────────────
+                case CMD_VYLOZ:
+                    aktualni_stav = STAT_BUSY;
+                    posli_stav();
+                    Serial.println(">> Otviram zasobniky...");
+                    otevri_nas();
+                    delay(300);  // krátká pauza pro mechaniku
+                    Serial.println(">> Zasobniky otevreny.");
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    aktualni_stav = STAT_READY;
+                    break;
+
+                // ─────────────────────────────────────────────────
+                //  ZAVRI_ZASOBNIKY — zavře zásobníky + resetuje počet
+                // ─────────────────────────────────────────────────
+                case CMD_ZAVRI_ZASOBNIKY:
+                    aktualni_stav = STAT_BUSY;
+                    posli_stav();
+                    Serial.println(">> Zaviram zasobniky...");
+                    zavri_nas();
+                    delay(300);  // krátká pauza pro mechaniku
+                    Serial.printf(">> Zasobniky zavreny. Vylozeno %d puku. Reset.\n", pocet_nasich_puku);
+                    pocet_nasich_puku = 0;
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    aktualni_stav = STAT_READY;
+                    break;
+
+                // ─────────────────────────────────────────────────
+                //  TOC_KONTINUALNE — roztočí motory a nechá je běžet.
+                //  Zastavení proběhne až přijde CMD_STOP.
+                // ─────────────────────────────────────────────────
+                case CMD_TOC_KONTINUALNE:
+                    aktualni_stav = STAT_READY;
+                    if (pocet_roz_p >= 3) {
+                        g_zadost_o_srovnani = true;
+                        pocet_roz_p = 0;
+                        g_lajny_bez_puku = 0;
+                    } else if (g_ujeta_lajna && !g_puk_roztrizen) {
+                        g_lajny_bez_puku++;
+                        if (g_lajny_bez_puku >= 4) {
+                            g_zadost_o_srovnani = true;
+                            g_lajny_bez_puku = 0;
+                            Serial.println(">> Dlouho bez puku -> srovnavam trididlo");
+                        }
+                    }
+                    g_puk_roztrizen = false;
+                    g_ujeta_lajna = false;
+                    posli_stav();
+                    if (param != 0) {
+                        Serial.printf(">> Tocim se nekonecne (rychlost: %d)...\n", param);
+                        rkMotorsSetSpeed(param, -param); 
+                    } else {
+                        rkMotorsSetSpeed(0, 0);
+                    }
+                    break;
+                
+                case CMD_OTEVRI_SOUPER:
+                    aktualni_stav = STAT_BUSY;
+                    posli_stav();
+                    Serial.println(">> Otviram zasobnik soupere...");
+                    otevri_souper();
+                    delay(100);
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    aktualni_stav = STAT_READY;
+                    break;
+
+                case CMD_ZAVRI_SOUPER:
+                    aktualni_stav = STAT_BUSY;
+                    posli_stav();
+                    Serial.println(">> Zaviram zasobnik soupere...");
+                    zavri_souper();
+                    delay(100);
+                    aktualni_stav = STAT_DONE;
+                    posli_stav();
+                    aktualni_stav = STAT_READY;
+                    break;
+            }
         }
-    }
 
-    // Malá pauza, abychom nezahltili procesor
-    delay(10); 
+        // Ruční srovnání třídiče na tlačítko DOWN - pouze pokud jsme READY (před startem)
+        if (aktualni_stav == STAT_READY && rb::Manager::get().buttons().down()) {
+            Serial.println(">> Ruční srovnání třídidla...");
+            srovnej_trididlo();
+            while(rb::Manager::get().buttons().down()) delay(10); // Čekej na uvolnění
+        }
+
+        delay(20);
+    }
 }
 
+void loop() {//ocioiowsd
+    delay(1000); 
+}
