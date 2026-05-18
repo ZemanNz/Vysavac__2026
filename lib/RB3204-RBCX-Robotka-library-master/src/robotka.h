@@ -1313,4 +1313,65 @@ void rkUartSend(const void* msg, size_t msgSize);
 //////////////////////////////////////////////////////
 /**@}*/
 
-#endif // LIBRB_
+/**
+ * \defgroup mpu Gyroskop a Akcelerometr (MPU6050)
+ * 
+ * Funkce pro práci s na desce napájeným gyroskopem a zjišťování náklonu / rotace robota.
+ * @{
+ */
+
+/**
+ * \brief Inicializuje gyroskop (MPU6050) a provede základní kalibraci.
+ * 
+ * Během inicializace robot nesmí být v pohybu, jinak se gyroskop zkalibruje špatně
+ * a úhel Z bude neustále ujíždět.
+ * 
+ * Pokud na desce fyzicky nemate gyroskop ---> budou se vypisovat 0.
+ */
+void rkMpuInit();
+
+/**
+ * \brief Vrátí aktuální úhel natočení robota (osa Z) ve stupních.
+ * \return Úhel ve stupních.
+ */
+float rkMpuGetAngleZ();
+
+/**
+ * \brief Vrátí aktuální úhel náklonu robota dopředu/dozadu (osa X) ve stupních.
+ * \return Úhel ve stupních.
+ */
+float rkMpuGetAngleX();
+
+/**
+ * \brief Vrátí aktuální úhel náklonu robota do stran (osa Y) ve stupních.
+ * \return Úhel ve stupních.
+ */
+float rkMpuGetAngleY();
+
+/**
+ * \brief Vynuluje aktuální úhel na ose Z.
+ * Ideální použít těsně před zatáčením, abyste se mohli otočit relativně z aktuální pozice.
+ */
+void rkMpuResetZ();
+
+/**
+ * \brief Vynuluje aktuální úhel na ose X.
+ * Pomocí této funkce se aktuální náklon robota dopředu/dozadu začne hlásit jako 0.
+ */
+void rkMpuResetX();
+
+/**
+ * \brief Vynuluje aktuální úhel na ose Y.
+ * Pomocí této funkce se aktuální náklon robota do stran začne hlásit jako 0.
+ */
+void rkMpuResetY();
+
+/**
+ * \brief Vynuluje úhly na všech osách (X, Y, Z) naráz.
+ */
+void rkMpuResetAll();
+
+/**@}*/
+
+#endif // _LIBRB_H
+

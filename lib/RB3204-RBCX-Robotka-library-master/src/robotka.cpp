@@ -1076,3 +1076,60 @@ bool rkButton1(bool waitForRelease) {
 bool rkButton2(bool waitForRelease) {
     return gCtx.motors().rkButton2(waitForRelease);
 }
+
+static float mpu_offset_x = 0.0f;
+static float mpu_offset_y = 0.0f;
+
+void rkMpuInit() {
+    auto& mpu = rb::Manager::get().mpu();
+    mpu.init();
+    mpu.sendStart();
+
+    // Počkáme chvíli, než začnou chodit první stabilní data ze senzoru
+    delay(1000);
+
+    // Vymažeme stará kalibrační data (nastaví offset na 0)
+    mpu.clearCalibrationData();
+    delay(100); // Necháme do knihovny natéct čistá data (bez offsetu)
+
+    // Zkalibrujeme! Uloží aktuální odchylku (chybu) jako offset, který se bude nově odečítat.
+    // DŮLEŽITÉ: ROBOT V TUTO CHVÍLI MUSÍ BÝT V ABSOLUTNÍM KLIDU!
+    mpu.setCalibrationData();
+    
+    // Vynulujeme celkový úhel osy Z, aby nám hezky začínal od nuly
+    mpu.resetAngleZ();
+    mpu_offset_x = 0.0f;
+    mpu_offset_y = 0.0f;
+}
+
+float rkMpuGetAngleZ() {
+    return rb::Manager::get().mpu().getAngleZ();
+}
+
+float rkMpuGetAngleX() {
+    return rb::Manager::get().mpu().getAngleX() - mpu_offset_x;
+}
+
+float rkMpuGetAngleY() {
+    return rb::Manager::get().mpu().getAngleY() - mpu_offset_y;
+}
+
+void rkMpuResetZ() {
+    rb::Manager::get().mpu().resetAngleZ();
+}
+
+void rkMpuResetX() {
+    // Pro zresetování uložíme aktuální absolutní úhel jako offset, 
+    // který se pak v GetAngle odečítá
+    mpu_offset_x = rb::Manager::get().mpu().getAngleX();
+}
+
+void rkMpuResetY() {
+    mpu_offset_y = rb::Manager::get().mpu().getAngleY();
+}
+
+void rkMpuResetAll() {
+    rkMpuResetZ();
+    rkMpuResetX();
+    rkMpuResetY();
+}

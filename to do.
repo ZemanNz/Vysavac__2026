@@ -1,113 +1,48 @@
-plan: 
+# TO DO:
 
-- esp32 mozek....
-- kdyz lidar uvidi soupere tak rekne zasav...
-- budeme potrebovat asynchroní funkce 
-- na rbcx v jednom vlakne while true na pohyb a v druhym dekod uartu..... ten by dekodoval funkce a zapinal booly na pohyb
-- na esp32 brani dat z lidaru + senzorů + tlacitek .... vypocetpolohy ..... rozhodování co se bude delat () ..... poslani pres uart.....
-- rbcx bude posilat zpet kolik vzal nasich puků..... a pokud ma stisknute predni a zadni tlacitka......... a samotne zapnuti programu....
-
-
-rozhodování : 
-- kdyz bude ve smeru nasi jizdy souper..... zastavujem nebo menime smeru
-- pokud mame vsechny puky vracime se domu
-- pokud cas konci vratime se domů...
-- budeme delat takove lajny...... .excalidraw.png ------------ na zaklade velikosti robota a pozice se bude delat ti lajny.... 
-
-
-postup:
-
-1) prvne udelame rbcx ..... smycka s asynchronima funkcema na pohyb .... 
-- pohyb dopredu kterej se bude spomalovat a zrychlovat a bude se vypinat bud prednima tlacitkama nebo narizenim z esp32 ... a u toho bude tridit puky..... --- done
-- otoceni o 90 stupnu doprava
-- otoceni o 90 stupnu doleva
-- otoceni o 180 stupnu
-- zacouvani urcitou vzdalenost ... nebo tlacitka, nebo esp .... netridime puky
-- funkce pro vylozeni puků--- nejlepsi by bylo couvat o ten stupen a vzdalenost a pak otevrit a popojet...
-- .... kdyztak pridame
-
-2) ty funkce dat do while(true) v jednom lakne na rbcx a podle boolů  je spoustet / zastavovat a nejakym delay
-
-3) sprovoznit uart komunikaci
-- rozpovidat to
-- budem jen posilat stavy promenejch tech bool
-
-4) esp32
-- dodelat nejak vystup ze senzorů
-- vypocitat polohu 
-- sprovoznit uart
-- pak se podle dat rozhodovat --- postupny postup ... po jedne funkci
-- posílat data
-
-5) Testovat a ladit
+* Už asi nic....... Jen kdyby se naskytla nejaka chybka.......
 
 
 
 
+# co je hotovo: 
 
+* forward a backward funkce                                                                                                 -----asi done
+* konzultovat ty funkce na to toceni na miste ----- >>>> popsat a zkouset                                                   -----asi done
+* udelat funkce radius asi taky se zrychlovanim ...... konzultovat                                                          -----asi done
+* udelat funkce na jeti zpet na tlacitko(jedno, 2, 3....) ---> to se zadefinujev robotce ---> io pin ,zase bude p regulator -----asi done
+* udelat funkce forward_acc a backward_acc ---> zrychlovaci a spomalovaci funkce ---> lepsi pro delsi vzdalenosti           -----mozna vymysled ti i slozku, ktera by to upravovala hezcejc
+* udelat swad tlacitka ---> pres wifi a taky to heske graficke tentonons...                                                 -----asi done
+* udelat wifi vypisy...   
+* udelat spomalovaci funkci ale upravit podle predesleho bodu...
+* chtelo by to tu presnost delat postupne a logicky, takze treba prvne zkousek pres wifi terminal co se stane kdy levymu dam 39 a pravymu 40......--- to je na hovno, ty motory reaguji na zmenu rychlosti tak o 5 %
+predelat funkce z motor commands.... , do ty rbcx knhovny...
+upravit readme, udelat ty funkce lepsi... hledat na internetu atd, standa, krivka, adam ma  dobry funkce
+udelat nejake nastavitelne promene jako roztec, sirka kol.... typ motoru
+udelat funkce pro ovladani na dalku (s,w,a,d), (<>)
 
+* preskouset ty smart serva ve stredu-------------------- done
+* examply !!!  --- wasd, terminal, uart --- ano udelat                                      ----- asi done
 
+* do knihovny zaimplementovat uart komunikaci --- z toho co je tady + medved v praze atd.  - udelat    --- asi done
+* vyzkouset zase to wasd  a terminal s wifi delanou robotem..........
+* udelat funkci na srovnani podle zdi s ultrazvukama ---- vzdy 2 senzory ---- > dve funkce pro zadek a bok ---. orient_to_wall---> pomale se bude otacedt dokud nebude stejna hodnota +- cm
+* tu wall folowing nejak slusne pozitelny.... ---- proste problem s motorama nevim jak to vyresit
+* vyzkouset wall_following a poupravit, potom pridat do examplu na jizdu....... 
+*power ---> speed
+* udelat nejako final verzi tech pohybu...   ----> radius --> zrychlovani a presnost , acc a back_buttons a wall_following -----------------
+* zacommitovat ty pohyby
+* vyresit varovani
+# co je hned potreba udelat: 
 
+* vymyslet tu presnost ----> bud na kazdou funkci dat do robotky konstanty, nebo to nejak vymyslet..... ---> mozna na to ted strat a udelat to s tim wifi vypisem...
 
+* presnost zkusit udelat tak ze budeme nastavovat podle polomeru kol ---> kazdy kolo bude muset ujet jinej pocet tiku ---> a pid bude dorovnavat do jejich pomeru-----
+----> treba jeden ma ujet 100 a druhej 50 ---> zatim co prvni mel ujet 50 tak t´druhej 25, ale ujel 23 tak mu pridam ---> zatim u funkce forward, ale jeste potreba doladit, byl by dobrej podle vystupu z wifi ---> takze to drive
 
-chování : 
-- jak vidis v .excalidraw.png budeme se pohybovat po tech lajnach a sbirat puky , pokud nam nebude v ceste stat souer....
-- nasim cilem neni presne dodrzovat ty lajny, ale proste vysbirat tu plochu pole, chtelo by si nejak pamatovat kde uz jsme to projeli a nejezdit tam znova ale zaroven projed co nejvetsi plochu ---> ty liny jsou jen pro predstavu a ukazatel jak by to bylo bez soupere..... ale kdyz nekde bude souper tak to proste otocime a projedeme to jinama.... proste to sesekneme a a udelame mene tech lajn.... nez vysipeme.... a potom muzeme jet na ta mista kam jsme minule nedojeli a posbirat to tam, ale uz zase nejezdit to co uz jsme jednou posbirali....
-- prvne pojedeme dopredu dokud nenarazime na soupera nebo uz na lidaru uvidime ze jsme moc blizko zd treba 50 cm tak se zastavime (nechceme moc jezdit blizko souerovym stenam)
-- pokud je souper v ceste tak se mu vyhneme otocenim o 90 stupnu doleva a hold nedojedeme na konec lajny a pojedeme doleva do -x
-- prejedeme na druhy konec hriste, bouchneme do zdi, trochu zacouvame, otocime se do leva , trochu popojedem o tu sirku robota a zase se otocime a pojedeme zase dalsi lajnu
-- ted vime ze nepotrebujeme jet az do zdi, protoze tam uz jsme to projeli a tak se zastavime zase o sirku robota predtim zase otocime popojedem o sirku otocime a dalsi lajnu.....
-- a tak dokola dokud nebudem u ty nasi zdi a seberem to kolem ni a jdeme to vylozit...
-- vylozeni probehne: dojedeme do naseho mistecka, otocime se , otevreme zasobniky , a popojedem o kousek dopredu a zase zavreme zasobniky a jedem zase sbirat puky
-- ted budeme potrebovat nejak vedet kde uz jsme byli a jet tam kde jsme jeste nebily...... 
-- pokud zbiva malo casu tak bych jen se zadkem otocil smerem k domovu a jel vzdalenost k domovu az budu v poli tak otevru zasobniky a a zase popojedu a zavru....
-
-
-
-
-
-
-
-
-
-
-
-problemy:
-
-- couva to, i kdyz by nemuelo a potom radsi narazit zadnima..                 -done
-- pri najezdu to obcas zajede az do steny....mozna pridat senzor vzdalenost.. -done
-- kdyz se dotnu zad. tlacitek tak to neco udela..... tfeba pr otaceni...            -done
-- pri trizeni tonereaguje na zdi.... narazi... neblokuje ta funkce rbcx v reakc         -done
-- pri trizeni se rozhodi tridic.... ---- mozna srovnavat pri otaceni....            -done
-
-
-- co budeme delat s tlacitky... asi kdyz se predni dotknou tak zastavita a popojet zpet ne?? -- done
-- vyhazovani souperovych puku..... kdyz jedeme z leva do prava aby jsme to znovu nebrali...--- vyhazoval bych to u prejizdeni line... -- done
-
-- SOUPER: 
-- i kdyz je obcas hezky pred nim tak do mej obcas narazi.... --- deje se min(no idea) 
-- uchytit poradne ultrazvuky....
-- vyresit to ze nekdy ho prejizdi moc dlouho..... --> cist vystup.... + to uchyceni....
-
-
-- DRUHA JIZDA:
-- musi se startovat sama.....
-
-- VYKLADANI:
-- obcas se to domrda..... zvlast po tlacitkach ci souper....   --->> uzto moc nedela... jeste sledovat
-
-
-- NOUZOVY NAVRAT:
-- obcas se to velice zmate... treba kdyz se stisknou predni tlacitka......   -- done-- potreba Testovat
-
-- RYCHLOST:
-- robot je docela pomalej.... 3 minuty je malo....
-
-
-
-- mozna vyzkouset akcelerometrna rbcx pro rychle otaceni--
-- udelat tu druhou jizdu... sama se startuje..... ---> zacinam... uz to nejezdi ke krajnim bodum a dve rady nahore....... ale nadute u toho jede proste do steny zmacknu ... couvne a jede zase dopredu.... do nekonecna... nutno opravi
-
-- problem pri otaceni ... poplete se lidar.... nejak vyresit
-
-- mozna problem s napetim----> resetuje se to .. stalo se 2x..... ---> mozna pridat 2. baterku.... a paralerne zapojit...
+* potom tu presnost dale neresit.....  mozna to nechat na vyslednyho robota...
+* zdokumentovat ten uart zkrz novy fotky v osekana robotka
+* udelat dokumentaci knihiovny....  -----> readme   --- ano udelat 
+* citlivost chytrych serv mozne nastavit v init
+* udelat dokumentaci nastavovani serv ty id 0 a 1
+* opravit fotky bo spammmy
