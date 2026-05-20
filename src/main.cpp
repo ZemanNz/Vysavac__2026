@@ -206,6 +206,36 @@ void uart_vlakno(void *pvParameters) {
 
 void setup(){
     Serial.begin(115200);
+
+    // Konfigurace robota - bezpečně uložena v main.cpp proti přepsání při aktualizaci knihovny
+    cfg.prevod_motoru = 1983.3f; // pro 12v ==  41.62486f * 48.f, pro 6v == 1981.3f
+    cfg.left_wheel_diameter = 61.0; // v mm
+    cfg.right_wheel_diameter = 61.0; // v mm
+    cfg.roztec_kol = 270.0; // v mm
+    cfg.konstanta_radius_vnejsi_kolo = 0.96f; // Korekční faktor pro vnější kolo při zatáčení
+    cfg.konstanta_radius_vnitrni_kolo = 0.96f; // Korekční faktor pro vnitřní kolo při zatáčení
+    cfg.korekce_nedotacivosti_left = 0.97f; // Korekce nedotáčivosti při otaceni na miste do leva
+    cfg.korekce_nedotacivosti_right = 0.97f; // Korekce nedotáčivosti při otaceni na miste do prava
+    cfg.Button1 = 0; // Místo NULL použito 0 pro typ byte
+    cfg.Button2 = 0; // Místo NULL použito 0 pro typ byte
+    cfg.motor_id_left = 4;
+    cfg.motor_id_right = 1;
+    cfg.motor_max_power_pct = 100;
+    cfg.motor_polarity_switch_left = false;
+    cfg.motor_polarity_switch_right = true;
+    cfg.motor_enable_failsafe = false;
+    cfg.motor_wheel_diameter = 61.0;
+    cfg.motor_max_ticks_per_second = 5200; // vyzkousite tak ze spustite funkci max_rychlost() a podle toho nastavite
+    cfg.motor_max_acceleration = 50000;
+    cfg.stupid_servo_min = -1.65f;
+    cfg.stupid_servo_max = 1.65f;
+    cfg.pocet_chytrych_serv = 0;
+    cfg.enable_wifi_log = false;
+    cfg.enable_wifi_control_wasd = false;
+    cfg.enable_wifi_terminal = false;
+    cfg.wifi_ssid = "robot1234";
+    cfg.wifi_password = "1234robot";
+
     rkSetup(cfg);
     delay(50);
 
