@@ -220,7 +220,13 @@ void setup(){
     rkUartInit();
 
     xTaskCreate(uart_vlakno, "UartVlakno", 4096, NULL, 2, NULL);
-    xTaskCreate(tridici_vlakno, "TridiciVlakno", 4096, NULL, 1, NULL);
+    
+    TaskHandle_t tridiciTaskHandle = NULL;
+    xTaskCreate(tridici_vlakno, "TridiciVlakno", 4096, NULL, 1, &tridiciTaskHandle);
+    if (tridiciTaskHandle != NULL) {
+        vTaskSuspend(tridiciTaskHandle);
+        Serial.println(">> Tridici vlakno pozastaveno (ceka na start zápasu).");
+    }
 
     rkLedGreen(true);
     // srovnej_trididlo(); // Počáteční kalibrace třídiče - ODSTRANĚNO (nyní na tlačítko DOWN)
@@ -230,7 +236,21 @@ void setup(){
     //  HLAVNÍ SMYČKA
     // =========================================================================
 
+    bool up_stisknuto = false;
+    uint32_t up_pressed_time = 0;
+
     while (true) {
+        if (!up_stisknuto && rb::Manager::get().buttons().up()) {
+            up_stisknuto = true;
+            up_pressed_time = millis();
+            Serial.println(">> UP stisknuto! Trideni bude spusteno za 3 sekundy.");
+        }
+
+        if (up_stisknuto && tridiciTaskHandle != NULL && (millis() - up_pressed_time > 3000)) {
+            vTaskResume(tridiciTaskHandle);
+            tridiciTaskHandle = NULL;
+            Serial.println(">> Trideni puku bylo SPUSTENO (resumed).");
+        }
 
         if (novy_prikaz) {
             novy_prikaz = false;

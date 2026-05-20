@@ -1,5 +1,5 @@
 {
-  "name": "RB3204-RBCX-library",
+  "name": "RB3204-RBCX-library-old",
   "keywords": "ESP32, RBCX, RB3204, Robotarna, RobotikaBrno, RoboticsBrno",
   "description": "Library for the RB3204-RBCX board with the ESP32 by RoboticsBrno.",
   "license": "MIT",
