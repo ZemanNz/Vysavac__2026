@@ -304,7 +304,7 @@ void setup(){
                 case CMD_JED_SBIREJ:
                     rkLedYellow(true);
                     zastav_jizdu = false;
-                    aktualni_stav = STAT_BUSY;
+                    aktualni_stav = STAT_BUSY; 
                     posli_stav();
                     Serial.printf(">> Jedu dopredu na %d%% a sbiram puky (cil: %d mm)...\n", param, param2);
                     
