@@ -566,7 +566,9 @@ git push
 
 Když vydáme vylepšení naší knihovny nebo opravíme chyby, můžeš si je bezpečně stáhnout do svého projektu. 
 
-⚠️ **DŮLEŽITÉ:** Než to uděláš, ujisti se, že máš všechny své aktuální změny uložené u sebe na GitHubu (pomocí příkazů `git add`, `commit` a `push` viz výše).
+⚠️ **DŮLEŽITÉ:** Než to uděláš, ujisti se, že máš všechny své aktuální změny uložené u sebe na GitHubu (pomocí příkazů `git add`, `commit` a `push` viz sekce výše).
+
+### Možnost A: Přes webové rozhraní GitHub (Sync Fork)
 
 1. Jdi na stránku **svého** forknutého repozitáře na GitHubu.
 2. Těsně pod zeleným tlačítkem *Code* uvidíš nápis *This branch is X commits behind ZemanNz:main*.
@@ -579,7 +581,100 @@ git pull
 
 Hotovo! Naše knihovny v projektu se zaktualizovaly a tvůj kód v `main.cpp` zůstal nedotčený.
 
-## 4. Přejmenování projektu
+### Možnost B: Synchronizace a řešení konfliktů přes Terminál (Sync přes Terminál)
+
+Tento návod slouží k tomu, abyste si do svého forknutého projektu stáhli nejnovější opravy a knihovny z hlavního repozitáře (`RBCX-best`), ale **nepřišli přitom o svého rozepsaného robota v souboru `src/main.cpp`**.
+
+#### 1. Prvotní nastavení (Stačí udělat pouze JEDNOU)
+Pokud ještě nemáte ve svém lokálním Gitu propojený původní repozitář, otevřete terminál ve VS Kódu a přidejte si ho pod názvem `upstream`:
+```bash
+git remote add upstream https://github.com/RBCX-best/RBCX-BEST.git
+```
+*(Zda máte propojení správně, si můžete ověřit příkazem `git remote -v`)*
+
+#### 2. Příkazy pro synchronizaci (Krok za krokem)
+
+Kdykoliv vyjde v hlavním repozitáři aktualizace, zadejte v terminálu VS Kódu tyto příkazy:
+
+##### Krok A: Stažení novinek do počítače
+```bash
+git fetch upstream
+```
+**Co to dělá:** Tento příkaz se podívá do hlavního repozitáře a stáhne z něj všechny nové úpravy (např. nové funkce v knihovnách nebo změny v `platformio.ini`) k vám do počítače. Zatím ale nic nemění ve vašich souborech, jen si je připraví do paměti.
+
+##### Krok B: Sloučení kódů
+```bash
+git merge upstream/main
+```
+**Co to dělá:** Pokusí se spojit stažené novinky s vaším kódem.
+- Pokud jste v daných souborech nic neměnili (např. v `robotka.cpp`), Git je aktualizuje sám automaticky.
+- Pokud jste vy i hlavní repozitář měnili stejný soubor (typicky `src/main.cpp`), Git se zastaví, nahlásí `CONFLICT` a soubor uzamkne, dokud si nevyberete, kterou verzi chcete zachovat.
+
+#### 3. Jak vyřešit konflikt ve VS Kódu (Potvrzení našich změn)
+
+Když `git merge` nahlásí konflikt v `src/main.cpp`, soubor se ve VS Kódu zbarví do červena. Když ho otevřete, uvidíte nad konfliktním kódem svítit malé textové nabídky.
+
+Pro zachování vašeho robota klikněte na:
+- **Accept Current Change** (případně *Accept Ours*) = Tím Gitu natvrdo řeknete: „Ponechej tady můj kód, co mám v PC, a změny z hlavního repozitáře pro tento soubor ignoruj.“
+
+Jakmile na to kliknete, gitové značky (`<<<<<<<` a `>>>>>>>`) zmizí. Soubor uložte (`Ctrl + S`) a dokončete proces v terminálu:
+```bash
+git add src/main.cpp
+git commit -m "Aktualizace z upstreamu se zachovanim vlastniho main.cpp"
+git push origin main
+```
+*(Příkaz `git push` odešle tuto čistou a spojenou verzi na váš osobní GitHub, takže i tam budete mít vše aktuální a bez chyb).*
+
+## 4. Jak zachovat vlastní verzi README.md při synchronizaci (Pokročilé nastavení přes `.gitattributes`)
+
+Pokud je v různých kopiích (forkách) repozitáře vyžadován odlišný obsah souboru `README.md` (např. specifická lokální dokumentace, obrázky či vlastní návody) a zároveň je nutné udržovat zbytek projektu synchronizovaný s hlavním repozitářem (`upstream`), lze využít soubor `.gitattributes` a strategii sloučení `merge=ours`.
+
+Tento postup zajistí, že při provádění `git merge` nedojde k přepsání lokální verze souboru `README.md` změnami z jiného repozitáře a nevzniknou žádné konflikty.
+
+### Jak to funguje? (Strategie sloučení "ours")
+
+Do projektu se přidá konfigurační pravidlo, které Gitu přikáže: *„Při jakémkoliv slučování (merge) souboru `README.md` ignoruj změny přicházející z druhé větve/repozitáře a vždy zachovej lokální verzi souboru.“*
+
+Aby toto chování fungovalo obousměrně a spolehlivě, musí toto nastavení provést všichni spolupracovníci ve svých lokálních repozitářích.
+
+### Návod na nastavení krok za krokem:
+
+#### Krok A: Vytvoření souboru `.gitattributes`
+V kořenové složce projektu (tam, kde se nachází `.gitignore`) vytvořte soubor s názvem `.gitattributes` (pozor na tečku na začátku).
+Do tohoto souboru vložte následující řádek:
+```plaintext
+README.md merge=ours
+```
+*Tento zápis určuje, že pro soubor README.md se má při sloučení použít strategie "ours".*
+
+#### Krok B: Aktivace merge driveru v lokálním Gitu
+Git standardně nepovoluje specifickou strategii sloučení pro jednotlivé soubory bez předchozí konfigurace. 
+Otevřete terminál ve složce projektu a spusťte následující příkaz:
+```bash
+git config merge.ours.driver true
+```
+*(Tento příkaz musí provést každý spolupracovník na svém počítači).*
+
+#### Krok C: Odeslání pravidla do repozitáře
+Přidejte soubor `.gitattributes` do sledování verzí a odešlete jej na vzdálený server (GitHub):
+```bash
+git add .gitattributes
+git commit -m "Nastaveni ochrany README pres gitattributes"
+git push origin main
+```
+
+### Jak to funguje v praxi?
+
+1. **Jeden z vývojářů** upraví `README.md` podle svých potřeb (např. přidá specifické grafické prvky či popis) a změny odešle na svůj GitHub (`git push`).
+2. **Druhý vývojář** si v téže době spravuje v souboru `README.md` vlastní texty a návody.
+3. Kdykoliv si kterýkoliv z vývojářů stáhne aktualizace kódu a knihoven z hlavního repozitáře (pomocí `git fetch upstream` a `git merge upstream/main`):
+   - Git automaticky a bezpečně sloučí všechny ostatní soubory a knihovny (např. `robotka.cpp`).
+   - Při pokusu o sloučení změn v `README.md` vyhodnotí pravidlo z `.gitattributes`, ignoruje příchozí změny z cizího repozitáře a ponechá v platnosti lokální verzi souboru.
+   - Nedochází k žádným konfliktům a každý si zachová svou specifickou verzi dokumentace.
+
+Tímto způsobem lze v různých kopiích repozitáře udržovat odlišný obsah souboru `README.md`, zatímco synchronizace funkčního kódu probíhá zcela automaticky.
+
+## 5. Přejmenování projektu
 
 - Pokud to prejmenujes na webu tak ok. Pokud na pocitaci tak musis aktualizovat cestu prikazem:
 
