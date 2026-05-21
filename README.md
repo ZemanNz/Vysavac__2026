@@ -594,7 +594,7 @@ git remote add upstream https://github.com/RBCX-best/RBCX-BEST.git
 
 #### 2. Příkazy pro synchronizaci (Krok za krokem)
 
-Kdykoliv vyjde v hlavním repozitáři aktualizace, zadejte v terminálu VS Kódu tyto příkazy:
+Kdykoliv vyjde v hlavním repozitáři aktualizace, zadejte v terminálu VS Kódu tyto příkazy::
 
 ##### Krok A: Stažení novinek do počítače
 ```bash
