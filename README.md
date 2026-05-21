@@ -1,4 +1,4 @@
-# RBCX-BEST 🤖
+# RBCX-BEST 🤖 :
 
 ## 🚀 Účel projektu
 
