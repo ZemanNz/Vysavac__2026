@@ -495,7 +495,7 @@ lx16a::SmartServoBus& rkSmartServoBus(uint8_t servo_count) {
 }
 
 
-// Smart Servo funkce
+// Smart Servo funkce ---- 
 void rkSmartServoInit(int id, int low, int high, int16_t max_diff_centideg, uint8_t  max_diff_readings) {
     rk::smart_servo::rkSmartServoInit(id, low, high, max_diff_centideg, max_diff_readings);
 }
