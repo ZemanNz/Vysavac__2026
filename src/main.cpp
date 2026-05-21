@@ -307,7 +307,7 @@ void setup(){
                     aktualni_stav = STAT_BUSY; 
                     posli_stav();
                     Serial.printf(">> Jedu dopredu na %d%% a sbiram puky (cil: %d mm)...\n", param, param2);
-                    
+                     
                     jed_a_sbirej((float)param, param2);
                     g_ujeta_lajna = true;
                     
