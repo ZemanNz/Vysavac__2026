@@ -17,7 +17,7 @@ static LaserSensor laserSensors[MAX_LASERS];
 static uint8_t      laserCount = 0;
 
 /**
- * @brief Inicializuje jeden VL53L0X na zadané sběrnici a XSHUT pinu, přepíše mu adresu.
+ * @brief Inicializuje jeden VL53L0X na zadané sběrnici a XSHUT pinu, přepíše mu  adresu.
  */
 void rk_laser_init_basic(const char*       name,
                          TwoWire&          bus,

@@ -38,6 +38,8 @@ void Context::setup(const rkConfig& cfg) {
     auto& man = Manager::get();
 
     auto man_flags = MAN_NONE;
+    
+
     if (!cfg.motor_enable_failsafe) {
         man_flags = ManagerInstallFlags(man_flags | MAN_DISABLE_MOTOR_FAILSAFE);
     }
