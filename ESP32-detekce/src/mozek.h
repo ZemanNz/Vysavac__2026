@@ -23,7 +23,7 @@
 
 // Časování
 #define ZAPNOUT_NOUZOVY_NAVRAT true    // Změnit na true pro zapnutí hlídání času (nouzový návrat)
-#define DELKA_ZAPASU_MS       60000    // 60 sekund (1 minuta)
+#define DELKA_ZAPASU_MS       180000   // 180 sekund (3 minuty)
 #define CAS_NOUZOVEHO_NAVRATU 18000    // posledních 18s → nouzový návrat
 
 // Rozměry robota (pro lajnovou navigaci)
@@ -778,7 +778,7 @@ void mozek_rozhoduj() {
     // ║  NOUZOVÝ NÁVRAT — má nejvyšší prioritu, přeruší cokoliv ║
     // ╚══════════════════════════════════════════════════════════╝
     if (ZAPNOUT_NOUZOVY_NAVRAT && cas_startu > 0 && zbyva_ms < CAS_NOUZOVEHO_NAVRATU
-        && stav != STAV_NOUZOVY_NAVRAT && stav != STAV_VYKLADAM_PUKY
+        && stav != STAV_NOUZOVY_NAVRAT && stav != STAV_VYKLADAM_PUKY && stav != STAV_VRACIM_SE_DOMU
         && !uz_vylozil) {
         Serial.println("[MOZEK] !!! ČAS KONČÍ — NOUZOVÝ NÁVRAT !!!");
         posli_prikaz(CMD_STOP);
@@ -841,6 +841,10 @@ void mozek_rozhoduj() {
                 break;
             case 11: // Čekání na otevření soupeřova zásobníku
                 if (rbcx_hotovo()) {
+                    float target_y = NV_ARENA_SIZE - (BEZPECNA_VZDALENOST_ZDIE_Y + 300.0f);
+                    float planned_dist_cm = (target_y - senzory.pozice_y) / 10.0f;
+                    Serial.printf("[MOZEK_DIAG] Planovany najezd nahoru: %.1f cm (z Y=%.1f na Y=%.1f)\n", 
+                        planned_dist_cm, senzory.pozice_y, target_y);
                     mozek_start_jizdy(RYCHLOST_NAJEZDU);
                     krok = 0;
                 }
@@ -869,11 +873,19 @@ void mozek_rozhoduj() {
                     break;
                 }
 
-                // Pojistka z lidaru: jaká je fyzická vzdálenost nárazníku od zdi?
-                float limit_dist_bumper_y = BEZPECNA_VZDALENOST_ZDIE_Y; 
+                // Pojistka z lidaru: jaká je fyzická vzdálenost nárazníku od zdi? (Zkráceno o 30 cm pouze při prvním nájezdu)
+                float limit_dist_bumper_y = BEZPECNA_VZDALENOST_ZDIE_Y + 300.0f; 
                 
                 bool dojeli_pozice = (senzory.pozice_y >= NV_ARENA_SIZE - limit_dist_bumper_y);
                 bool dojeli_lidar  = (senzory.dist_vpredu <= limit_dist_bumper_y);
+
+                static unsigned long posledni_vypis_ms = 0;
+                if (millis() - posledni_vypis_ms > 250) {
+                    posledni_vypis_ms = millis();
+                    Serial.printf("[MOZEK_DIAG] NAJEZD: Y=%.1f (cil >= %.1f), LIDAR=%.1f (cil <= %.1f)\n",
+                        senzory.pozice_y, NV_ARENA_SIZE - limit_dist_bumper_y,
+                        senzory.dist_vpredu, limit_dist_bumper_y);
+                }
 
                 if (dojeli_pozice || dojeli_lidar) {
                     posli_prikaz(CMD_STOP);
@@ -1345,16 +1357,21 @@ void mozek_rozhoduj() {
                     krok = 2;
                 }
                 break;
-            case 2:
-                if (senzory.domov_vzdalenost < 150.0f) {
+            case 2: {
+                bool v_home_x = (senzory.pozice_x >= NV_ARENA_SIZE - 700.0f);
+                bool v_home_y = (senzory.pozice_y <= 700.0f);
+                
+                if ((v_home_x && v_home_y) || senzory.domov_vzdalenost < 150.0f) {
+                    Serial.println("[MOZEK] Cíl nebo kraj domovské zóny dosažen. Zastavuji.");
                     posli_prikaz(CMD_STOP);
                     krok = 3;
-                } else if (senzory.dist_vpredu < 200.0f) {
-                    Serial.println("[MOZEK] Zastaveni kvuli zdi pri navratu domu!");
+                } else if (senzory.dist_vpredu < 300.0f) {
+                    Serial.println("[MOZEK] Zastaveni kvuli zdi pri navratu domu (LiDAR < 300 mm)!");
                     posli_prikaz(CMD_STOP);
                     krok = 3;
                 }
                 break;
+            }
             case 3:
                 if (rbcx_hotovo()) {
                     Serial.println("[MOZEK] Navrat domu - zaviram souperuv zasobnik...");
@@ -1397,10 +1414,10 @@ void mozek_rozhoduj() {
             }
             case 31:
                 if (rbcx_hotovo()) {
-                    Serial.println("[MOZEK] Zásobníky otevřeny. Popojíždím 30 cm...");
+                    Serial.println("[MOZEK] Zásobníky otevřeny. Popojíždím 36 cm...");
                     mozek_start_jizdy(40);
                     cas_krok_ms = millis();
-                    vyklad_zbyva_ms = 1500;
+                    vyklad_zbyva_ms = 1800;
                     krok = 40;
                 }
                 break;
@@ -1492,11 +1509,15 @@ void mozek_rozhoduj() {
                 float dy = emergency_home_y - senzory.pozice_y;
                 float vzdalenost = sqrtf(dx*dx + dy*dy);
                 
-                if (vzdalenost < 150.0f) {
+                bool v_home_x = (senzory.pozice_x >= NV_ARENA_SIZE - 700.0f);
+                bool v_home_y = (senzory.pozice_y <= 700.0f);
+                
+                if ((v_home_x && v_home_y) || vzdalenost < 150.0f) {
+                    Serial.println("[MOZEK] Cíl nebo kraj domovské zóny dosažen při nouzovém návratu. Zastavuji.");
                     posli_prikaz(CMD_STOP);
                     krok = 3;
-                } else if (senzory.dist_vpredu < 200.0f) {
-                    Serial.println("[MOZEK] Nouzove zastaveni kvuli zdi pri navratu!");
+                } else if (senzory.dist_vpredu < 300.0f) {
+                    Serial.println("[MOZEK] Nouzové zastavení u stěny při návratu (LiDAR < 300 mm)!");
                     posli_prikaz(CMD_STOP);
                     krok = 3;
                 }

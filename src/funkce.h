@@ -26,7 +26,7 @@ void srovnej_trididlo() {
     // Točí motorem proti směru hodinových ručiček, dokud senzor nevrátí 0 
     // (resp. pro absolutní bezpečí raději kontroluji aby tam nebyl ani šum > 10)
     while (rkIrRight() > 10) {
-        rotaceProtiSmeru();
+        rotacePoSmeru();
     }
     
     // Zastavíme a vrátíme původní stav
@@ -126,25 +126,67 @@ void tridici_vlakno(void *pvParameters) {
             
             // Pokud zachytíme reálný puk (barva NENÍ neznámá)
             if (barva != 'N') {
-                // Pošleme TŘÍDÍCÍ FUNKCI POUZE PÍSMENO zjištěné barvy
-                roztrid_puk(barva);
+                if (barva == nase_barva) {
+                    pocet_nasich_puku++;
+                    roztrid_puk(barva);
+                    
+                    // Rychlá kalibrace po každém 2. našem puku
+                    if (pocet_nasich_puku % 2 == 0) {
+                        Serial.println(">> Rychla kalibrace tridice po 2. nasem puku...");
+                        
+                        // 1) Přejedeme pozici o 40° po směru, aby uvolnila prostor pro servo-stopku
+                        otoc_motorem(40, false);
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                        
+                        // 2) Sklopíme dorazové servo dolů
+                        rkServosSetPosition(2, 75);
+                        vTaskDelay(pdMS_TO_TICKS(150));
+                        
+                        // 3) Otočíme se zpět proti směru o 170°, čímž narazíme na doraz a srovnáme se
+                        otoc_motorem(170, true);
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                        
+                        // 4) Servo zvedneme nahoru
+                        rkServosSetPosition(2, 0);
+                        vTaskDelay(pdMS_TO_TICKS(100));
+                        
+                        Serial.println(">> Rychla kalibrace dokoncena.");
+                    }
+                } else {
+                    roztrid_puk(barva);
+                }
+                
                 g_puk_roztrizen = true;
                 pocet_roz_p++;       // Počítadlo celkově roztříděných puků
                 g_lajny_bez_puku = 0; // Reset počítadla lajn bez puků
                 
-                if (barva == nase_barva) {
-                    pocet_nasich_puku++;
-                }
-                
-                // Počkáme chvilku po roztřídění, ať si třídič "oddechne" (sníženo na 100ms z 500ms)
+                // Počkáme chvilku po roztřídění, ať si třídič "oddechne"
                 vTaskDelay(pdMS_TO_TICKS(100));
             }
         }
         
-        // Asynchronní požadavek na srovnání třídiče (např. během otáčení)
+        // Asynchronní požadavek na rychlou kalibraci třídiče (např. po 3 lajnách bez puku)
         if (g_zadost_o_srovnani) {
-            srovnej_trididlo();
+            Serial.println(">> Rychla kalibrace na zadost (dlouho bez puku)...");
+            
+            // 1) Otočení o 160° po směru (ze základní pozice do přetočené)
+            otoc_motorem(160, false);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            
+            // 2) Sklopíme dorazové servo dolů
+            rkServosSetPosition(2, 75);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            
+            // 3) Otočení se zpět proti směru o 170° nadoraz
+            otoc_motorem(170, true);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            
+            // 4) Servo zvedneme nahoru
+            rkServosSetPosition(2, 0);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            
             g_zadost_o_srovnani = false;
+            Serial.println(">> Rychla kalibrace na zadost dokoncena.");
         }
         
         // Zpoždění aby vlákno neběželo na 100% zátěži CPU (FreeRTOS)

@@ -274,10 +274,10 @@ void setup(){
         if (!up_stisknuto && rb::Manager::get().buttons().up()) {
             up_stisknuto = true;
             up_pressed_time = millis();
-            Serial.println(">> UP stisknuto! Trideni bude spusteno za 0.5 sekundy.");
+            Serial.println(">> UP stisknuto! Trideni bude spusteno za 4 sekundy.");
         }
 
-        if (up_stisknuto && tridiciTaskHandle != NULL && (millis() - up_pressed_time > 500)) {
+        if (up_stisknuto && tridiciTaskHandle != NULL && (millis() - up_pressed_time > 4000)) {
             vTaskResume(tridiciTaskHandle);
             tridiciTaskHandle = NULL;
             Serial.println(">> Trideni puku bylo SPUSTENO (resumed).");
@@ -287,19 +287,32 @@ void setup(){
         bool emergency_return_active = false;
         if (up_stisknuto) {
             uint32_t elapsed = millis() - up_pressed_time;
-            if (elapsed > 60000) {
+            if (elapsed > 180000) {
                 g_match_ended = true;
-            } else if (elapsed > 42000) {
+            } else if (elapsed > 162000) {
                 emergency_return_active = true;
             }
         }
 
         static uint32_t last_flash_time = 0;
         static bool flash_state = false;
+        static bool emergency_beep_done = false;
+        static bool final_beep_done = false;
 
         if (g_match_ended) {
             rkMotorsSetPower(0, 0);
             zastav_jizdu = true;
+
+            if (!final_beep_done) {
+                final_beep_done = true;
+                // Zapípat dvakrát na úplný konec
+                for (int i = 0; i < 2; i++) {
+                    rkBuzzerSet(true);
+                    delay(150);
+                    rkBuzzerSet(false);
+                    if (i < 1) delay(100);
+                }
+            }
 
             if (millis() - last_flash_time > 250) {
                 last_flash_time = millis();
@@ -307,6 +320,14 @@ void setup(){
                 rkLedAll(flash_state);
             }
         } else if (emergency_return_active) {
+            if (!emergency_beep_done) {
+                emergency_beep_done = true;
+                // Zapípat jednou při spuštění nouzového návratu
+                rkBuzzerSet(true);
+                delay(250);
+                rkBuzzerSet(false);
+            }
+
             if (millis() - last_flash_time > 250) {
                 last_flash_time = millis();
                 flash_state = !flash_state;
@@ -385,16 +406,12 @@ void setup(){
                     aktualni_stav = STAT_BUSY;
                     posli_stav();
                     
-                    if (pocet_roz_p >= 3) {
-                        g_zadost_o_srovnani = true;
-                        pocet_roz_p = 0;
-                        g_lajny_bez_puku = 0;
-                    } else if (g_ujeta_lajna && !g_puk_roztrizen) {
+                    if (g_ujeta_lajna && !g_puk_roztrizen) {
                         g_lajny_bez_puku++;
-                        if (g_lajny_bez_puku >= 4) {
+                        if (g_lajny_bez_puku >= 3) {
                             g_zadost_o_srovnani = true;
                             g_lajny_bez_puku = 0;
-                            Serial.println(">> Dlouho bez puku -> srovnavam trididlo");
+                            Serial.println(">> Dlouho bez puku -> zadost o rychlou kalibraci");
                         }
                     }
                     g_puk_roztrizen = false;
@@ -413,16 +430,12 @@ void setup(){
                     aktualni_stav = STAT_BUSY;
                     posli_stav();
                     
-                    if (pocet_roz_p >= 3) {
-                        g_zadost_o_srovnani = true;
-                        pocet_roz_p = 0;
-                        g_lajny_bez_puku = 0;
-                    } else if (g_ujeta_lajna && !g_puk_roztrizen) {
+                    if (g_ujeta_lajna && !g_puk_roztrizen) {
                         g_lajny_bez_puku++;
-                        if (g_lajny_bez_puku >= 4) {
+                        if (g_lajny_bez_puku >= 3) {
                             g_zadost_o_srovnani = true;
                             g_lajny_bez_puku = 0;
-                            Serial.println(">> Dlouho bez puku -> srovnavam trididlo");
+                            Serial.println(">> Dlouho bez puku -> zadost o rychlou kalibraci");
                         }
                     }
                     g_puk_roztrizen = false;
@@ -487,16 +500,12 @@ void setup(){
                 // ─────────────────────────────────────────────────
                 case CMD_TOC_KONTINUALNE:
                     aktualni_stav = STAT_READY;
-                    if (pocet_roz_p >= 3) {
-                        g_zadost_o_srovnani = true;
-                        pocet_roz_p = 0;
-                        g_lajny_bez_puku = 0;
-                    } else if (g_ujeta_lajna && !g_puk_roztrizen) {
+                    if (g_ujeta_lajna && !g_puk_roztrizen) {
                         g_lajny_bez_puku++;
-                        if (g_lajny_bez_puku >= 4) {
+                        if (g_lajny_bez_puku >= 3) {
                             g_zadost_o_srovnani = true;
                             g_lajny_bez_puku = 0;
-                            Serial.println(">> Dlouho bez puku -> srovnavam trididlo");
+                            Serial.println(">> Dlouho bez puku -> zadost o rychlou kalibraci");
                         }
                     }
                     g_puk_roztrizen = false;
@@ -537,8 +546,29 @@ void setup(){
 
         // Ruční srovnání třídiče na tlačítko DOWN - pouze pokud jsme READY (před startem)
         if (aktualni_stav == STAT_READY && rb::Manager::get().buttons().down()) {
-            Serial.println(">> Ruční srovnání třídidla...");
-            srovnej_trididlo();
+            Serial.println(">> Test nové rychlé kalibrace třídidla...");
+            
+            // Simulace vytřídění našeho puku (otočení o 120° po směru)
+            roztrid_puk(nase_barva);
+            delay(200);
+            
+            // 1) Přejedeme pozici o 40° po směru
+            otoc_motorem(40, false);
+            delay(50);
+            
+            // 2) Sklopíme dorazové servo dolů
+            rkServosSetPosition(2, 75);
+            delay(150);
+            
+            // 3) Otočíme se zpět proti směru o 170°, čímž narazíme na doraz a srovnáme se
+            otoc_motorem(170, true);
+            delay(50);
+            
+            // 4) Servo zvedneme nahoru
+            rkServosSetPosition(2, 0);
+            delay(100);
+            
+            Serial.println(">> Test nové rychlé kalibrace dokončen.");
             while(rb::Manager::get().buttons().down()) delay(10); // Čekej na uvolnění
         }
 
