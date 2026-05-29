@@ -1,127 +1,42 @@
 #pragma once
 #include <Arduino.h>
+#include "robotka.h"
 
-const int in1 =  25;
-const int in2 =  26;
-const int in3 =  27;
-const int in4 =  14;
-int rychlost_us = 1000; // RYCHLOST MOTORU (dříve 800 ms, ale motor hrčel/vibroval). 1000 je bezpečný limit. Větší = pomalejší přesný krok.
+// Konfigurace pro kontinuální servo na S1 (Port 1)
+const float SERVO_SPEED = 20.0f;        // Rychlost otáčení (hodnota v rozsahu 0 až 90)
+const float MS_PER_DEGREE = 11.4075f;       // Koeficient převodu úhlu na čas v ms (lze doladit)
 
-void init_stepper(){
-    pinMode(in1, OUTPUT);
-    pinMode(in2, OUTPUT);
-    pinMode(in3, OUTPUT);
-    pinMode(in4, OUTPUT);
-}
-
-void krok1(){
-  digitalWrite(in1, HIGH);
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, LOW);
-  delayMicroseconds(rychlost_us);
-}
-void krok2(){
-  digitalWrite(in1, HIGH);
-  digitalWrite(in2, HIGH);
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, LOW);
-  delayMicroseconds(rychlost_us);
-}
-void krok3(){
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, HIGH);
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, LOW);
-  delayMicroseconds(rychlost_us);
-}
-void krok4(){
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, HIGH);
-  digitalWrite(in3, HIGH);
-  digitalWrite(in4, LOW);
-  delayMicroseconds(rychlost_us);
-}
-void krok5(){
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, HIGH);
-  digitalWrite(in4, LOW);
-  delayMicroseconds(rychlost_us);
-}
-void krok6(){
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, HIGH);
-  digitalWrite(in4, HIGH);
-  delayMicroseconds(rychlost_us);
-}
-void krok7(){
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, HIGH);
-  delayMicroseconds(rychlost_us);
-}
-void krok8(){
-  digitalWrite(in1, HIGH);
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, HIGH);
-  delayMicroseconds(rychlost_us);
-}
-
-void rotacePoSmeru() {
-  krok1();
-  krok2();
-  krok3();
-  krok4();
-  krok5();
-  krok6();
-  krok7();
-  krok8();
-}
-
-void rotaceProtiSmeru() {
-  krok8();
-  krok7();
-  krok6();
-  krok5();
-  krok4();
-  krok3();
-  krok2();
-  krok1();
+void init_stepper() {
+    // Stepper motor nepoužíváme, inicializace pinů je prázdná
 }
 
 void vypni_civky() {
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, LOW);
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, LOW);
+    // Pro kontinuální servo vypnutí znamená nastavení neutralu a vypnutí napájení serva
+    rkServosSetPosition(1, 0.0f);
+    delay(100); // Necháme servu čas zaregistrovat stop-pulz a zastavit se
+    rkServosDisable(1);
 }
 
-void otoc_motorem(int uhel, bool proti_smeru){
-  // Pokud jedeme po směru (proti_smeru == false), odečteme pár stupňů jako korekci proti přetáčení.
-  float korekce = -0.3;
-  if (!proti_smeru) {
-      korekce = -0.2; // O kolik stupňů se to "přetáčí" – lze libovolně doladit
-  }
-  
-  int pocet_kroku = ((uhel - korekce) * 64) / 45;
-  
-  if(proti_smeru){
-    for(int i=0;i<pocet_kroku;i++){
-      rotaceProtiSmeru();
+void otoc_motorem(int uhel, bool proti_smeru) {
+    float rychlost = proti_smeru ? -SERVO_SPEED : SERVO_SPEED;
+    int duration_ms = (int)(uhel * MS_PER_DEGREE);
+    
+    if (duration_ms > 0) {
+        rkServosSetPosition(1, rychlost);
+        delay(duration_ms);
     }
-  }
-  else{
-    for(int i=0;i<pocet_kroku;i++){
-      rotacePoSmeru();
-    }
-  }
-  
-  // Vypnutí cívek na konci může také pomoci s cuknutím/přetáčením na nejbližší magnetický krok
-  vypni_civky();
+    
+    // Zastavení serva po dokončení otáčení
+    vypni_civky();
 }
 
+// Pomocné funkce pro simulovaný krokový posun (např. při srovnávání na senzor)
+void rotacePoSmeru() {
+    rkServosSetPosition(1, SERVO_SPEED);
+    delay(5);
+}
 
+void rotaceProtiSmeru() {
+    rkServosSetPosition(1, -SERVO_SPEED);
+    delay(5);
+}

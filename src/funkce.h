@@ -104,8 +104,7 @@ void roztrid_puk(char barva) {
 void tridici_vlakno(void *pvParameters) {
     int pocitadlo_puku = 0;
     float r = 0, g = 0, b = 0;
-    int wiggle_timer = 0;
-    int wiggle_state = 0; // 0 = stred, 1 = +5° (vlevo), 2 = -5° (vpravo)
+
 
     // První naměřené hodnoty senzoru bezprostředně po jeho zapnutí
     // bývají občas totální nesmysly (tzv. "garbage readings", např. 255/255/255 nebo 0.6).
@@ -128,14 +127,7 @@ void tridici_vlakno(void *pvParameters) {
             
             // Pokud zachytíme reálný puk (barva NENÍ neznámá)
             if (barva != 'N') {
-                // Pokud jsme byli vyosení kvůli wigglování, vrátíme se do středu před tříděním
-                if (wiggle_state == 1) {
-                    otoc_motorem(5, true);
-                } else if (wiggle_state == 2) {
-                    otoc_motorem(5, false);
-                }
-                wiggle_state = 0;
-                wiggle_timer = 0;
+
 
                 if (barva == nase_barva) {
                     pocet_nasich_puku++;
@@ -173,35 +165,12 @@ void tridici_vlakno(void *pvParameters) {
                 
                 // Počkáme chvilku po roztřídění, ať si třídič "oddechne"
                 vTaskDelay(pdMS_TO_TICKS(100));
-            } else {
-                // Žájný puk nedetekován -> jemné kmitání (wiggle) pro setřesení a usnadnění vjezdu puku
-                wiggle_timer++;
-                if (wiggle_timer >= 5) { // Každých 500 ms (5 * 100 ms)
-                    wiggle_timer = 0;
-                    if (wiggle_state == 0) {
-                        otoc_motorem(5, false); // Ze středu do +5°
-                        wiggle_state = 1;
-                    } else if (wiggle_state == 1) {
-                        otoc_motorem(10, true); // Z +5° do -5°
-                        wiggle_state = 2;
-                    } else if (wiggle_state == 2) {
-                        otoc_motorem(10, false); // Z -5° do +5°
-                        wiggle_state = 1;
-                    }
-                }
             }
         }
         
         // Asynchronní požadavek na rychlou kalibraci třídiče (např. po 2 lajnách bez puku)
         if (g_zadost_o_srovnani) {
-            // Pokud jsme byli vyosení, vrátíme se do středu před kalibrací
-            if (wiggle_state == 1) {
-                otoc_motorem(5, true);
-            } else if (wiggle_state == 2) {
-                otoc_motorem(5, false);
-            }
-            wiggle_state = 0;
-            wiggle_timer = 0;
+
 
             Serial.println(">> Rychla kalibrace na zadost (dlouho bez puku)...");
             

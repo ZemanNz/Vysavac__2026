@@ -428,43 +428,14 @@ void setup(){
         }
 
         if (rb::Manager::get().buttons().on()) {
-            Serial.println(">> ON stisknuto! Spoustim re-kalibraci gyroskopu (S ROBOTEM NEHYBAT!)...");
-            
-            auto& mpu = rb::Manager::get().mpu();
-            bool data_dorazila = false;
-            for (int i = 0; i < 10; i++) {
-                mpu.init();
-                delay(100);
-                mpu.sendStart();
-                delay(100);
-                if (fabs(mpu.getAccZ()) > 0.05f || fabs(mpu.getGyroZ()) > 0.0001f) {
-                    data_dorazila = true;
-                    break;
-                }
-            }
-            
-            if (data_dorazila) {
-                mpu.clearCalibrationData();
-                delay(100);
-                mpu.setCalibrationData();
-                delay(100);
-                
-                float sum = 0.0f;
-                const int samples = 100;
-                for (int i = 0; i < samples; i++) {
-                    sum += mpu.getGyroZ();
-                    delay(20);
-                }
-                g_gyro_z_offset = sum / (float)samples;
-                Serial.printf(">> Re-kalibrace dokoncena. MPU data - Gyro Z: %.4f | Acc Z: %.4f. Novy zbytkovy drift: %.4f °/s\n", mpu.getGyroZ(), mpu.getAccZ(), g_gyro_z_offset);
-                
-                mpu.resetAngleZ();
-                g_gyro_reset_time = millis();
-                g_gyro_calibrated = true;
+            nase_barva = 'R';
+            pocet_nasich_puku = 0;
+            if (tridiciTaskHandle != NULL) {
+                vTaskResume(tridiciTaskHandle);
+                tridiciTaskHandle = NULL;
+                Serial.println(">> ON stisknuto! Spoustim plnohodnotne trideni (nase barva: CERVENA).");
             } else {
-                Serial.println(">> VAROVÁNÍ: Gyroskop nereaguje ani pri re-kalibraci. Deaktivuji ho.");
-                g_gyro_z_offset = 0.0f;
-                g_gyro_calibrated = false;
+                Serial.println(">> ON stisknuto! Tridici vlakno uz bezi. Resetuji pocet a nastavuji barvu na CERVENOU.");
             }
             delay(500); // Debounce
         }
