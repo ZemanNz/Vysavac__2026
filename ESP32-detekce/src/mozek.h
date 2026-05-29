@@ -22,9 +22,9 @@
 #define UART_RBCX_BAUD  115200
 
 // Časování
-#define ZAPNOUT_NOUZOVY_NAVRAT false   // Změnit na true pro zapnutí hlídání času (nouzový návrat)
-#define DELKA_ZAPASU_MS       180000   // 180 sekund (3 minuty)
-#define CAS_NOUZOVEHO_NAVRATU 10000    // posledních 10s → nouzový návrat
+#define ZAPNOUT_NOUZOVY_NAVRAT true    // Změnit na true pro zapnutí hlídání času (nouzový návrat)
+#define DELKA_ZAPASU_MS       60000    // 60 sekund (1 minuta)
+#define CAS_NOUZOVEHO_NAVRATU 18000    // posledních 18s → nouzový návrat
 
 // Rozměry robota (pro lajnovou navigaci)
 #define SIRKA_ROBOTA_MM       300.0f   // šířka robota = šířka jedné lajny
@@ -654,7 +654,7 @@ float najdi_nejblizsi_rovnobezku(float aktualni_heading_deg) {
     return 270.0f;
 }
 
-void mozek_otoc_se_na(float target_deg) {
+void mozek_otoc_se_na(float target_deg, bool fast = false) {
     while (target_deg < 0) target_deg += 360.0f;
     while (target_deg >= 360.0f) target_deg -= 360.0f;
 
@@ -675,7 +675,7 @@ void mozek_otoc_se_na(float target_deg) {
         }
 
         // Tříúrovňová rychlost otáčení (34%, 12%, 3%)
-        int16_t pozadovana_rychlost = (rozdil > 0) ? 30 : -30;
+        int16_t pozadovana_rychlost = (rozdil > 0) ? (fast ? 45 : 30) : (fast ? -45 : -30);
         if (fabs(rozdil) <= 50.0f) {
             pozadovana_rychlost = (rozdil > 0) ? 12 : -12;
         }
@@ -1328,7 +1328,7 @@ void mozek_rozhoduj() {
                 float dy = MOZEK_HOME_Y - senzory.pozice_y;
                 float angle_home_deg = atan2f(dx, dy) * 180.0f / PI;
                 
-                mozek_otoc_se_na(angle_home_deg);
+                mozek_otoc_se_na(angle_home_deg, true);
                 krok = 1;
                 break;
             }
@@ -1365,7 +1365,7 @@ void mozek_rozhoduj() {
             case 13:
                 if (rbcx_hotovo()) {
                     Serial.println("[MOZEK] Navrat domu - natoceni na vykladaci uhel (0°)...");
-                    mozek_otoc_se_na(0.0f);
+                    mozek_otoc_se_na(0.0f, true);
                     krok = 4;
                 }
                 break;
@@ -1461,12 +1461,14 @@ void mozek_rozhoduj() {
     case STAV_NOUZOVY_NAVRAT:
         switch (krok) {
             case 0: {
-                // Vypočteme si absolutní úhel k domovu
-                float dx = MOZEK_HOME_X - senzory.pozice_x;
-                float dy = MOZEK_HOME_Y - senzory.pozice_y;
+                // Vypočteme si absolutní úhel k nouzovému domovu (450, 450 od rohu)
+                float emergency_home_x = NV_ARENA_SIZE - 450.0f;
+                float emergency_home_y = 450.0f;
+                float dx = emergency_home_x - senzory.pozice_x;
+                float dy = emergency_home_y - senzory.pozice_y;
                 float angle_home_deg = atan2f(dx, dy) * 180.0f / PI;
                 
-                mozek_otoc_se_na(angle_home_deg);
+                mozek_otoc_se_na(angle_home_deg, true);
                 krok = 1;
                 break;
             }
@@ -1483,8 +1485,14 @@ void mozek_rozhoduj() {
                     krok = 2;
                 }
                 break;
-            case 2:
-                if (senzory.domov_vzdalenost < 150.0f) {
+            case 2: {
+                float emergency_home_x = NV_ARENA_SIZE - 450.0f;
+                float emergency_home_y = 450.0f;
+                float dx = emergency_home_x - senzory.pozice_x;
+                float dy = emergency_home_y - senzory.pozice_y;
+                float vzdalenost = sqrtf(dx*dx + dy*dy);
+                
+                if (vzdalenost < 150.0f) {
                     posli_prikaz(CMD_STOP);
                     krok = 3;
                 } else if (senzory.dist_vpredu < 200.0f) {
@@ -1493,6 +1501,7 @@ void mozek_rozhoduj() {
                     krok = 3;
                 }
                 break;
+            }
             case 3:
                 if (rbcx_hotovo()) {
                     Serial.println("[MOZEK] Nouzovy navrat - zaviram souperuv zasobnik...");
@@ -1503,7 +1512,7 @@ void mozek_rozhoduj() {
             case 13:
                 if (rbcx_hotovo()) {
                     Serial.println("[MOZEK] Nouzovy navrat - natoceni na vykladaci uhel (0°)...");
-                    mozek_otoc_se_na(0.0f);
+                    mozek_otoc_se_na(0.0f, true);
                     krok = 4;
                 }
                 break;
