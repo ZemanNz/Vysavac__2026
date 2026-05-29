@@ -259,7 +259,10 @@ void setup(){
         Serial.println(">> Tridici vlakno pozastaveno (ceka na start zápasu).");
     }
 
-    rkLedGreen(true);
+    rkLedYellow(true);
+    rkLedGreen(false);
+    rkLedRed(false);
+    rkLedBlue(false);
     // srovnej_trididlo(); // Počáteční kalibrace třídiče - ODSTRANĚNO (nyní na tlačítko DOWN)
     Serial.println("=== RBCX READY ===");
 
@@ -271,13 +274,28 @@ void setup(){
     uint32_t up_pressed_time = 0;
 
     while (true) {
-        if (!up_stisknuto && rb::Manager::get().buttons().up()) {
+        if (!up_stisknuto && rb::Manager::get().buttons().left()) {
+            nase_barva = 'B';
             up_stisknuto = true;
             up_pressed_time = millis();
-            Serial.println(">> UP stisknuto! Trideni bude spusteno za 4 sekundy.");
+            rkLedBlue(true);
+            rkLedYellow(false);
+            rkLedRed(false);
+            rkLedGreen(false);
+            Serial.println(">> LEFT stisknuto! Nastavena MODRA barva. Trideni bude spusteno za 0.5 sekundy.");
+        }
+        else if (!up_stisknuto && rb::Manager::get().buttons().right()) {
+            nase_barva = 'R';
+            up_stisknuto = true;
+            up_pressed_time = millis();
+            rkLedRed(true);
+            rkLedYellow(false);
+            rkLedBlue(false);
+            rkLedGreen(false);
+            Serial.println(">> RIGHT stisknuto! Nastavena CERVENA barva. Trideni bude spusteno za 0.5 sekundy.");
         }
 
-        if (up_stisknuto && tridiciTaskHandle != NULL && (millis() - up_pressed_time > 4000)) {
+        if (up_stisknuto && tridiciTaskHandle != NULL && (millis() - up_pressed_time > 500)) {
             vTaskResume(tridiciTaskHandle);
             tridiciTaskHandle = NULL;
             Serial.println(">> Trideni puku bylo SPUSTENO (resumed).");
@@ -339,22 +357,51 @@ void setup(){
         }
 
         if (rb::Manager::get().buttons().on()) {
-            Serial.println(">> ON stisknuto! Spoustim nekonecnou smycku cteni barvy...");
+            Serial.println(">> ON stisknuto! Inicializuji gyroskop (MPU)...");
+            
+            auto& mpu = rb::Manager::get().mpu();
+            mpu.init();
+            mpu.sendStart();
+            
+            Serial.println(">> Cekam 1.5s na stabilizaci dat ze senzoru...");
+            delay(1500);
+            
+            Serial.println(">> Spoustim presnou kalibraci driftu (S ROBOTEM NEHYBAT!)...");
+            mpu.clearCalibrationData();
+            delay(100);
+            mpu.setCalibrationData();
+            delay(100);
+            
+            // Změření zbytkového driftu (průměrná úhlová rychlost v klidu)
+            float sum = 0.0f;
+            const int samples = 100;
+            for (int i = 0; i < samples; i++) {
+                sum += mpu.getGyroZ();
+                delay(20);
+            }
+            float gyro_z_offset = sum / (float)samples;
+            Serial.printf(">> Kalibrace dokoncena. Zmereny zbytkovy drift: %.4f °/s\n", gyro_z_offset);
+            
+            mpu.resetAngleZ();
+            uint32_t gyro_reset_time = millis();
+            
+            Serial.println(">> Spoustim vypis uhlu s kompenzaci driftu... (Stiskem UP resetujes uhel)");
             while (true) {
-                float r = 0, g = 0, b = 0;
-                if (rkColorSensorGetRGB("front", &r, &g, &b)) {
-                    char barva = urci_barvu_puku(r, g, b);
-                    if (barva == 'R') {
-                        Serial.println(">> Poznali jsme, ze to je cerveny puk");
-                    } else if (barva == 'B') {
-                        Serial.println(">> Poznali jsme, ze to je modry puk");
-                    } else {
-                        Serial.println(">> Nevidime nic");
-                    }
-                } else {
-                    Serial.println(">> Chyba cteni ze senzoru barvy!");
+                float raw = mpu.getAngleZ();
+                float dt = (millis() - gyro_reset_time) / 1000.f;
+                float angleZ = raw - (gyro_z_offset * dt);
+                
+                Serial.printf(">> GYRO Z (raw: %.2f | kompenzovany: %.2f | drift: %.4f °/s)\n", raw, angleZ, gyro_z_offset);
+                
+                // Reset úhlu na nulu
+                if (rb::Manager::get().buttons().up()) {
+                    mpu.resetAngleZ();
+                    gyro_reset_time = millis();
+                    Serial.println(">> --- GYRO RESETOVANO NA 0 ---");
+                    delay(300); // Debounce
                 }
-                delay(200);
+                
+                delay(100);
             }
         }
 

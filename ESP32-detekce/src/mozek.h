@@ -807,20 +807,20 @@ void mozek_rozhoduj() {
             }
         }
 
-        // Start se spouští tlačítkem UP na RBCX, ale až po jeho PUŠTĚNÍ a malé prodlevě
-        static bool btn_up_predchozi = false;
+        // Start se spouští tlačítkem LEFT nebo RIGHT na RBCX, ale až po jeho PUŠTĚNÍ a malé prodlevě
+        static bool btn_start_predchozi = false;
         static unsigned long uvolneno_v_ms = 0;
-        bool btn_up_nyni = rbcx.tlacitko_vpredu_up;
+        bool btn_start_nyni = rbcx.tlacitko_vlevo || rbcx.tlacitko_vpravo;
         
         // Detekce sestupné hrany (uvolnění)
-        if (!btn_up_nyni && btn_up_predchozi && rbcx.pripojeno) {
+        if (!btn_start_nyni && btn_start_predchozi && rbcx.pripojeno) {
             uvolneno_v_ms = millis();
-            Serial.println("[MOZEK] Tlačítko UP uvolněno, odpočet 1s do startu...");
+            Serial.println("[MOZEK] Startovací tlačítko uvolněno, odpočet 0.5s do startu...");
         }
-        btn_up_predchozi = btn_up_nyni;
+        btn_start_predchozi = btn_start_nyni;
 
-        // Odpočet 1s po puštění tlačítka (aby se eliminoval náraz při rozjezdu)
-        if (uvolneno_v_ms > 0 && (millis() - uvolneno_v_ms > 1000)) {
+        // Odpočet 0.5s po puštění tlačítka (aby se eliminoval náraz při rozjezdu)
+        if (uvolneno_v_ms > 0 && (millis() - uvolneno_v_ms > 500)) {
             uvolneno_v_ms = 0;
             Serial.println("[MOZEK] STARTUJI ZÁPAS!");
             mozek_start_zapasu();
