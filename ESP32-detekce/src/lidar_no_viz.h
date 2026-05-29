@@ -47,8 +47,20 @@ static bool nv_points_ready = false;
 static float nv_g_rx = 500.0f, nv_g_ry = 500.0f, nv_g_h = 0.0f;
 // Surové z RANSACu
 static float nv_raw_rx = 500.0f, nv_raw_ry = 500.0f, nv_raw_h = 0.0f;
+static bool slam_pozastaven = false;
+static bool nv_rotace_probiha = false;
+
 // EMA heading (sin/cos)
 static float nv_h_sin_avg = 0.0f, nv_h_cos_avg = 1.0f;
+
+// Pomocná inline funkce pro předání úhlu z gyroskopu do SLAMu (včetně EMA historie)
+static inline void nv_nastav_heading(float heading_rad) {
+    nv_g_h = heading_rad;
+    while (nv_g_h < -PI) nv_g_h += 2.0f * PI;
+    while (nv_g_h > PI) nv_g_h -= 2.0f * PI;
+    nv_h_sin_avg = sinf(nv_g_h);
+    nv_h_cos_avg = cosf(nv_g_h);
+}
 
 // EMA alfy – stejné jako v lidar.h
 #define NV_SLAM_ALPHA_H    0.60f
@@ -237,9 +249,19 @@ void loop_lidar_nv() {
 
         nv_raw_h = toff + atan2f(-fx, fy);
 
-        nv_h_sin_avg = (1.0f - NV_SLAM_ALPHA_H) * nv_h_sin_avg + NV_SLAM_ALPHA_H * sinf(nv_raw_h);
-        nv_h_cos_avg = (1.0f - NV_SLAM_ALPHA_H) * nv_h_cos_avg + NV_SLAM_ALPHA_H * cosf(nv_raw_h);
-        nv_g_h = atan2f(nv_h_sin_avg, nv_h_cos_avg);
+        // --- FILTRACE SKOKŮ ÚHLU (Čistý LiDAR s 15° filtrem) ---
+        float diff_h = nv_raw_h - nv_g_h;
+        while (diff_h < -PI) diff_h += 2.0f * PI;
+        while (diff_h > PI) diff_h -= 2.0f * PI;
+
+        if (!slam_pozastaven) {
+            // Pokud nejsme ve stavu otáčení a skok je příliš velký (> 15°), ignorujeme raw hodnotu
+            if (nv_rotace_probiha || (fabsf(diff_h) <= (15.0f * PI / 180.0f))) {
+                nv_h_sin_avg = (1.0f - NV_SLAM_ALPHA_H) * nv_h_sin_avg + NV_SLAM_ALPHA_H * sinf(nv_raw_h);
+                nv_h_cos_avg = (1.0f - NV_SLAM_ALPHA_H) * nv_h_cos_avg + NV_SLAM_ALPHA_H * cosf(nv_raw_h);
+                nv_g_h = atan2f(nv_h_sin_avg, nv_h_cos_avg);
+            }
+        }
 
         ch = cosf(nv_g_h); sh = sinf(nv_g_h);
         for (int i=0; i<nw; i++) {
@@ -256,8 +278,30 @@ void loop_lidar_nv() {
                 else       nv_raw_rx = dist;
             }
         }
-        nv_g_rx = (1.0f - NV_SLAM_ALPHA_POS) * nv_g_rx + NV_SLAM_ALPHA_POS * nv_raw_rx;
-        nv_g_ry = (1.0f - NV_SLAM_ALPHA_POS) * nv_g_ry + NV_SLAM_ALPHA_POS * nv_raw_ry;
+
+        if (!slam_pozastaven) {
+            // --- BEZPEČNÝ FILTR RYCHLOSTI ZMĚNY POZICE (Rate Limiting) ---
+            float target_rx = (1.0f - NV_SLAM_ALPHA_POS) * nv_g_rx + NV_SLAM_ALPHA_POS * nv_raw_rx;
+            float target_ry = (1.0f - NV_SLAM_ALPHA_POS) * nv_g_ry + NV_SLAM_ALPHA_POS * nv_raw_ry;
+
+            float step_x = target_rx - nv_g_rx;
+            float step_y = target_ry - nv_g_ry;
+
+            // Omezení změny pozice na snímek (zvětšeno z 15mm na 80mm pro eliminaci lagování při plné rychlosti)
+            const float max_step = 80.0f;
+
+            if (nv_g_rx == 500.0f) {
+                nv_g_rx = nv_raw_rx; // Rychlá inicializace na startovní pozici
+            } else {
+                nv_g_rx += constrain(step_x, -max_step, max_step);
+            }
+
+            if (nv_g_ry == 500.0f) {
+                nv_g_ry = nv_raw_ry;
+            } else {
+                nv_g_ry += constrain(step_y, -max_step, max_step);
+            }
+        }
     }
 
     // ===================== Detekce soupeře (PCA) =====================

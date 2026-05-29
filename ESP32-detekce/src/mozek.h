@@ -140,7 +140,9 @@ struct StavRbcx {
     bool    tlacitko_vpredu_down;
     bool    tlacitko_vlevo;
     bool    tlacitko_vpravo;
+    bool    gyro_ok;           // Indikuje, zda je gyroskop zkalibrovaný a funkční
     int     pocet_puku;
+    float   gyro_heading;      // drift-kompenzovaný úhel z gyroskopu
     uint16_t uz1_mm;           // Ultrazvuk 1 (levý zadní) v mm
     uint16_t uz3_mm;           // Ultrazvuk 3 (pravý zadní) v mm
     unsigned long posledni_prijem;  // millis()
@@ -329,7 +331,9 @@ bool prijmi_stav_rbcx() {
                     rbcx.tlacitko_vpredu_down= (st.buttons >> 1) & 1;
                     rbcx.tlacitko_vlevo      = (st.buttons >> 2) & 1;
                     rbcx.tlacitko_vpravo     = (st.buttons >> 3) & 1;
+                    rbcx.gyro_ok             = (st.buttons >> 4) & 1;
                     rbcx.pocet_puku          = st.pocet_puku;
+                    rbcx.gyro_heading        = st.param / 10.0f;
                     rbcx.uz1_mm              = st.uz1_mm;
                     rbcx.uz3_mm              = st.uz3_mm;
                     rbcx.posledni_prijem     = millis();
@@ -658,37 +662,172 @@ void mozek_otoc_se_na(float target_deg, bool fast = false) {
     while (target_deg < 0) target_deg += 360.0f;
     while (target_deg >= 360.0f) target_deg -= 360.0f;
 
-    Serial.printf("[MOZEK] Blokujici rotace na %.1f°\n", target_deg);
-    int16_t aktualni_rychlost = 0; 
-    while (true) {
-        loop_lidar_nv();
-        mozek_aktualizuj_senzory();
-        prijmi_stav_rbcx();
+    nv_rotace_probiha = true; // Povolíme větší úhlové skoky ve SLAM filtru během aktivního otáčení
+    mozek_aktualizuj_senzory();
+    prijmi_stav_rbcx();
+
+    // Vyhodnocení rizikové situace (blízko stěny nebo soupeře)
+    // 1. Soupeř je blízko
+    bool souper_blizko = senzory.souper_viden && senzory.souper_vzdalenost < 650.0f;
+
+    // 2. Směrové vektory cíle a směr otáčení
+    float target_rad = target_deg * PI / 180.0f;
+    float tx = sinf(target_rad); // kladné pro +X (doprava), záporné pro -X (doleva)
+    float ty = cosf(target_rad); // kladné pro +Y (nahoru), záporné pro -Y (dolů)
+    float lidar_start = senzory.heading;
+    float relativni_posun = vypocti_rozdil_uhlu(target_deg, lidar_start);
+    bool otaceni_vlevo = (relativni_posun > 5.0f);
+    bool otaceni_vpravo = (relativni_posun < -5.0f);
+
+    // 3. Stěny a lokální překážky — gyro použijeme pouze pokud se otáčíme SMĚREM k nim
+    bool stena_vpredu = (senzory.dist_vpredu < 500.0f);
+    bool u_pravy_zdi  = (senzory.pozice_x > (NV_ARENA_SIZE - 450.0f)) && (tx >= -0.1f);
+    bool u_levy_zdi   = (senzory.pozice_x < 450.0f) && (tx <= 0.1f);
+    bool u_horni_zdi  = (senzory.pozice_y > (NV_ARENA_SIZE - 450.0f)) && (ty >= -0.1f);
+    bool u_dolni_zdi  = (senzory.pozice_y < 450.0f) && (ty <= 0.1f);
+    
+    bool lokalni_prekazka_vlevo  = (nv_dist_left < 350.0f) && otaceni_vlevo;
+    bool lokalni_prekazka_vpravo = (nv_dist_right < 350.0f) && otaceni_vpravo;
+
+    // Nouzovou rotaci (přes gyro) aktivujeme pouze tehdy, pokud je gyroskop funkční
+    // A ZÁROVEŇ se točíme směrem k nějaké blízké stěně či překážce.
+    bool blizko_prekazky = rbcx.gyro_ok && (
+                           souper_blizko 
+                        || stena_vpredu
+                        || u_pravy_zdi 
+                        || u_levy_zdi 
+                        || u_horni_zdi 
+                        || u_dolni_zdi
+                        || lokalni_prekazka_vlevo
+                        || lokalni_prekazka_vpravo
+    );
+
+    bool gyro_selhalo = false;
+
+    if (blizko_prekazky) {
+        Serial.printf("[MOZEK] KRIZOVÁ ROTACE (gyroskop) na %.1f°\n", target_deg);
         
-        float heading_deg = senzory.heading;
-        float rozdil = vypocti_rozdil_uhlu(target_deg, heading_deg);
-        
-        if (fabs(rozdil) <= 2.5f) { // T_TOLERANCE_DEG
-            posli_prikaz(CMD_STOP);
-            Serial.printf("[MOZEK] Rotace dokoncena (%.1f°)\n", heading_deg);
-            break; 
+        float gyro_start = rbcx.gyro_heading;
+        float gyro_target = gyro_start + relativni_posun;
+
+        // Pozastavíme SLAM (zmrazíme X,Y a přímé úhlové updaty)
+        slam_pozastaven = true;
+
+        int16_t aktualni_rychlost = 0;
+        unsigned long cas_startu = millis();
+
+        while (true) {
+            loop_lidar_nv();
+            mozek_aktualizuj_senzory();
+            prijmi_stav_rbcx();
+
+            // Aktualizujeme nv_g_h (pro zbytek systému) podle gyroskopu
+            float gyro_diff = rbcx.gyro_heading - gyro_start;
+            float new_h_rad = (lidar_start + gyro_diff) * PI / 180.0f;
+            nv_nastav_heading(new_h_rad);
+            senzory.heading = nv_g_h * 180.0f / PI;
+
+            // Periodický výpis průběhu gyro rotace pro diagnostiku
+            static unsigned long posledni_gyro_tisk = 0;
+            if (millis() - posledni_gyro_tisk > 150) {
+                posledni_gyro_tisk = millis();
+                Serial.printf("[MOZEK_DIAG] Gyro rotace: t=%lums | gyro_start=%.1f | gyro_now=%.1f | diff=%.1f (cil_diff=%.1f) | speed=%d\n",
+                    millis() - cas_startu, gyro_start, rbcx.gyro_heading, gyro_diff, relativni_posun, (int)aktualni_rychlost);
+            }
+
+            // Kontrola funkčnosti gyroskopu: pokud se točíme, ale úhel se vůbec nemění, detekujeme selhání gyra
+            // Zvýšena doba na 1500ms kvůli eliminaci přechodových jevů při rozjezdu a periodické telemetrie (200ms)
+            if (millis() - cas_startu > 1500 && abs(aktualni_rychlost) > 10 && fabs(gyro_diff) < 0.5f) {
+                Serial.printf("[MOZEK] CHYBA: Gyroskop nereaguje! (start: %.1f, aktualni: %.1f, diff: %.1f) Padám zpět do standardní rotace.\n", gyro_start, rbcx.gyro_heading, gyro_diff);
+                posli_prikaz(CMD_STOP);
+                slam_pozastaven = false;
+                gyro_selhalo = true;
+                break;
+            }
+
+            float rozdil = gyro_target - rbcx.gyro_heading;
+
+            if (fabs(rozdil) <= 1.5f || (millis() - cas_startu > 6000)) { // 6s timeout
+                posli_prikaz(CMD_STOP);
+                Serial.printf("[MOZEK] Gyro rotace dokoncena (gyro: %.1f°, target: %.1f°)\n", rbcx.gyro_heading, gyro_target);
+                break;
+            }
+
+            // Tříúrovňová rychlost otáčení (34%, 12%, 3%)
+            int16_t pozadovana_rychlost = (rozdil > 0) ? (fast ? 45 : 30) : (fast ? -45 : -30);
+            if (fabs(rozdil) <= 50.0f) {
+                pozadovana_rychlost = (rozdil > 0) ? 12 : -12;
+            }
+            if (fabs(rozdil) <= 10.0f) {
+                pozadovana_rychlost = (rozdil > 0) ? 3 : -3;
+            }
+
+            if (pozadovana_rychlost != aktualni_rychlost) {
+                posli_prikaz(CMD_TOC_KONTINUALNE, pozadovana_rychlost);
+                aktualni_rychlost = pozadovana_rychlost;
+            }
+            delay(5);
         }
 
-        // Tříúrovňová rychlost otáčení (34%, 12%, 3%)
-        int16_t pozadovana_rychlost = (rozdil > 0) ? (fast ? 45 : 30) : (fast ? -45 : -30);
-        if (fabs(rozdil) <= 50.0f) {
-            pozadovana_rychlost = (rozdil > 0) ? 12 : -12;
-        }
-        if (fabs(rozdil) <= 10.0f) {
-            pozadovana_rychlost = (rozdil > 0) ? 3 : -3;
-        }
+        if (!gyro_selhalo) {
+            // Dobrždění a případné jemné doladění (fine-tuning)
+            delay(150);
+            prijmi_stav_rbcx();
+            float finalni_odchylka = gyro_target - rbcx.gyro_heading;
+            if (fabs(finalni_odchylka) > 2.0f && fabs(finalni_odchylka) < 25.0f) {
+                Serial.printf("[MOZEK] Jemne doladeni rotace o %.1f°\n", finalni_odchylka);
+                int16_t smer = (finalni_odchylka > 0) ? 3 : -3;
+                posli_prikaz(CMD_TOC_KONTINUALNE, smer);
+                unsigned long fine_start = millis();
+                while (fabs(gyro_target - rbcx.gyro_heading) > 1.0f && (millis() - fine_start < 600)) {
+                    prijmi_stav_rbcx();
+                    delay(5);
+                }
+                posli_prikaz(CMD_STOP);
+            }
 
-        if (pozadovana_rychlost != aktualni_rychlost) {
-            posli_prikaz(CMD_TOC_KONTINUALNE, pozadovana_rychlost);
-            aktualni_rychlost = pozadovana_rychlost;
+            // Srovnáme konečný úhel ve SLAMu a obnovíme normální režim
+            prijmi_stav_rbcx();
+            float finalni_h_rad = (lidar_start + (rbcx.gyro_heading - gyro_start)) * PI / 180.0f;
+            nv_nastav_heading(finalni_h_rad);
+            slam_pozastaven = false;
         }
-        delay(5);
     }
+
+    if (!blizko_prekazky || gyro_selhalo) {
+        Serial.printf("[MOZEK] STANDARDNÍ ROTACE (LiDAR) na %.1f°\n", target_deg);
+        int16_t aktualni_rychlost = 0; 
+        while (true) {
+            loop_lidar_nv();
+            mozek_aktualizuj_senzory();
+            prijmi_stav_rbcx();
+            
+            float heading_deg = senzory.heading;
+            float rozdil = vypocti_rozdil_uhlu(target_deg, heading_deg);
+            
+            if (fabs(rozdil) <= 2.5f) { // T_TOLERANCE_DEG
+                posli_prikaz(CMD_STOP);
+                Serial.printf("[MOZEK] Rotace dokoncena (%.1f°)\n", heading_deg);
+                break; 
+            }
+
+            // Tříúrovňová rychlost otáčení (34%, 12%, 3%)
+            int16_t pozadovana_rychlost = (rozdil > 0) ? (fast ? 45 : 30) : (fast ? -45 : -30);
+            if (fabs(rozdil) <= 50.0f) {
+                pozadovana_rychlost = (rozdil > 0) ? 12 : -12;
+            }
+            if (fabs(rozdil) <= 10.0f) {
+                pozadovana_rychlost = (rozdil > 0) ? 3 : -3;
+            }
+
+            if (pozadovana_rychlost != aktualni_rychlost) {
+                posli_prikaz(CMD_TOC_KONTINUALNE, pozadovana_rychlost);
+                aktualni_rychlost = pozadovana_rychlost;
+            }
+            delay(5);
+        }
+    }
+    nv_rotace_probiha = false; // Obnovíme standardní 15° filtr po dokončení otáčení
 }
 
 void mozek_otoc_o_90(bool vlevo) {
@@ -1742,7 +1881,7 @@ void mozek_rozhoduj() {
     static unsigned long posledni_mapa = 0;
     if (millis() - posledni_debug > 1000) {
         posledni_debug = millis();
-        Serial.printf("[MOZEK] %s k=%d | t=%lus | RBCX:%s puky=%d | POS(%d,%d) H=%d° | FRONT %dmm (pts:%d) | HOME %dmm %d°%c | L%d/%d %s",
+        Serial.printf("[MOZEK] %s k=%d | t=%lus | RBCX:%s puky=%d | POS(%d,%d) H=%d° G=%.1f°(%s) | FRONT %dmm (pts:%d) | HOME %dmm %d°%c | L%d/%d %s",
             jmeno_stavu(stav),
             krok,
             zbyva_ms / 1000,
@@ -1750,6 +1889,8 @@ void mozek_rozhoduj() {
             rbcx.pocet_puku,
             (int)senzory.pozice_x, (int)senzory.pozice_y,
             (int)senzory.heading,
+            rbcx.gyro_heading,
+            rbcx.gyro_ok ? "OK" : "ERR",
             (int)senzory.dist_vpredu,
             nv_acc_front_count,
             (int)senzory.domov_vzdalenost,

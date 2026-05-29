@@ -29,6 +29,11 @@ volatile bool g_ujeta_lajna = false;
 volatile bool g_match_ended = false;
 Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
 
+// --- Gyroskop global ---
+volatile float g_gyro_z_offset = 0.0f;
+volatile uint32_t g_gyro_reset_time = 0;
+volatile bool g_gyro_calibrated = false;
+
 // =============================================================================
 //  KOMUNIKAČNÍ PROTOKOL (1:1 s mozek.h!)
 // =============================================================================
@@ -134,9 +139,23 @@ RbcxStatus sestav_stav(int16_t extra_param = 0) {
     if (btns.right()) s.buttons |= (1 << 3);  // bit 3
 
     if(byly_tlacitka) s.buttons |= (1 << 0);  // bit 0
+
+    // Bit 4: Gyroskop je zkalibrovaný a funkční
+    if (g_gyro_calibrated) {
+        s.buttons |= (1 << 4);
+    }
     
     s.pocet_puku = pocet_nasich_puku;
-    s.param = extra_param;
+    
+    if (g_gyro_calibrated) {
+        float raw = rb::Manager::get().mpu().getAngleZ();
+        float dt = (millis() - g_gyro_reset_time) / 1000.f;
+        float angleZ = raw - (g_gyro_z_offset * dt);
+        s.param = (int16_t)roundf(angleZ * 10.0f);
+    } else {
+        s.param = 0;
+    }
+    
     s.uz1_mm = g_uz1_mm;
     s.uz3_mm = g_uz3_mm;
     
@@ -263,6 +282,58 @@ void setup(){
     rkLedGreen(false);
     rkLedRed(false);
     rkLedBlue(false);
+
+    // --- GYRO INITIALIZATION & CALIBRATION ---
+    Serial.println(">> Inicializuji gyroskop (MPU)... S ROBOTEM NEHYBAT!");
+    auto& mpu = rb::Manager::get().mpu();
+    
+    // Čekáme na navázání komunikace a první platná data (max 3 sekundy)
+    bool data_dorazila = false;
+    for (int i = 0; i < 15; i++) {
+        mpu.init();
+        delay(100);
+        mpu.sendStart();
+        delay(100);
+        if (fabs(mpu.getAccZ()) > 0.05f || fabs(mpu.getGyroZ()) > 0.0001f) {
+            data_dorazila = true;
+            break;
+        }
+    }
+    
+    if (data_dorazila) {
+        Serial.println(">> Gyroskop komunikuje. Spoustim kalibraci...");
+        // Rychlé zablikání LEDkami pro signalizaci kalibrace
+        for (int i = 0; i < 5; i++) {
+            rkLedYellow(true);
+            delay(100);
+            rkLedYellow(false);
+            delay(100);
+        }
+        
+        mpu.clearCalibrationData();
+        delay(100);
+        mpu.setCalibrationData();
+        delay(100);
+        
+        // Změření zbytkového driftu (průměrná úhlová rychlost v klidu)
+        float sum = 0.0f;
+        const int samples = 100;
+        for (int i = 0; i < samples; i++) {
+            sum += mpu.getGyroZ();
+            delay(15);
+        }
+        g_gyro_z_offset = sum / (float)samples;
+        Serial.printf(">> Kalibrace dokoncena. Zmereny zbytkovy drift: %.4f °/s\n", g_gyro_z_offset);
+        
+        mpu.resetAngleZ();
+        g_gyro_reset_time = millis();
+        g_gyro_calibrated = true;
+    } else {
+        Serial.println(">> VAROVÁNÍ: Gyroskop nereaguje (data nedorazila). Pokracuji BEZ gyroskopu.");
+        g_gyro_z_offset = 0.0f;
+        g_gyro_calibrated = false;
+    }
+
     // srovnej_trididlo(); // Počáteční kalibrace třídiče - ODSTRANĚNO (nyní na tlačítko DOWN)
     Serial.println("=== RBCX READY ===");
 
@@ -357,52 +428,45 @@ void setup(){
         }
 
         if (rb::Manager::get().buttons().on()) {
-            Serial.println(">> ON stisknuto! Inicializuji gyroskop (MPU)...");
+            Serial.println(">> ON stisknuto! Spoustim re-kalibraci gyroskopu (S ROBOTEM NEHYBAT!)...");
             
             auto& mpu = rb::Manager::get().mpu();
-            mpu.init();
-            mpu.sendStart();
-            
-            Serial.println(">> Cekam 1.5s na stabilizaci dat ze senzoru...");
-            delay(1500);
-            
-            Serial.println(">> Spoustim presnou kalibraci driftu (S ROBOTEM NEHYBAT!)...");
-            mpu.clearCalibrationData();
-            delay(100);
-            mpu.setCalibrationData();
-            delay(100);
-            
-            // Změření zbytkového driftu (průměrná úhlová rychlost v klidu)
-            float sum = 0.0f;
-            const int samples = 100;
-            for (int i = 0; i < samples; i++) {
-                sum += mpu.getGyroZ();
-                delay(20);
-            }
-            float gyro_z_offset = sum / (float)samples;
-            Serial.printf(">> Kalibrace dokoncena. Zmereny zbytkovy drift: %.4f °/s\n", gyro_z_offset);
-            
-            mpu.resetAngleZ();
-            uint32_t gyro_reset_time = millis();
-            
-            Serial.println(">> Spoustim vypis uhlu s kompenzaci driftu... (Stiskem UP resetujes uhel)");
-            while (true) {
-                float raw = mpu.getAngleZ();
-                float dt = (millis() - gyro_reset_time) / 1000.f;
-                float angleZ = raw - (gyro_z_offset * dt);
-                
-                Serial.printf(">> GYRO Z (raw: %.2f | kompenzovany: %.2f | drift: %.4f °/s)\n", raw, angleZ, gyro_z_offset);
-                
-                // Reset úhlu na nulu
-                if (rb::Manager::get().buttons().up()) {
-                    mpu.resetAngleZ();
-                    gyro_reset_time = millis();
-                    Serial.println(">> --- GYRO RESETOVANO NA 0 ---");
-                    delay(300); // Debounce
-                }
-                
+            bool data_dorazila = false;
+            for (int i = 0; i < 10; i++) {
+                mpu.init();
                 delay(100);
+                mpu.sendStart();
+                delay(100);
+                if (fabs(mpu.getAccZ()) > 0.05f || fabs(mpu.getGyroZ()) > 0.0001f) {
+                    data_dorazila = true;
+                    break;
+                }
             }
+            
+            if (data_dorazila) {
+                mpu.clearCalibrationData();
+                delay(100);
+                mpu.setCalibrationData();
+                delay(100);
+                
+                float sum = 0.0f;
+                const int samples = 100;
+                for (int i = 0; i < samples; i++) {
+                    sum += mpu.getGyroZ();
+                    delay(20);
+                }
+                g_gyro_z_offset = sum / (float)samples;
+                Serial.printf(">> Re-kalibrace dokoncena. MPU data - Gyro Z: %.4f | Acc Z: %.4f. Novy zbytkovy drift: %.4f °/s\n", mpu.getGyroZ(), mpu.getAccZ(), g_gyro_z_offset);
+                
+                mpu.resetAngleZ();
+                g_gyro_reset_time = millis();
+                g_gyro_calibrated = true;
+            } else {
+                Serial.println(">> VAROVÁNÍ: Gyroskop nereaguje ani pri re-kalibraci. Deaktivuji ho.");
+                g_gyro_z_offset = 0.0f;
+                g_gyro_calibrated = false;
+            }
+            delay(500); // Debounce
         }
 
         if (novy_prikaz) {
@@ -455,7 +519,7 @@ void setup(){
                     
                     if (g_ujeta_lajna && !g_puk_roztrizen) {
                         g_lajny_bez_puku++;
-                        if (g_lajny_bez_puku >= 3) {
+                        if (g_lajny_bez_puku >= 2) {
                             g_zadost_o_srovnani = true;
                             g_lajny_bez_puku = 0;
                             Serial.println(">> Dlouho bez puku -> zadost o rychlou kalibraci");
@@ -479,7 +543,7 @@ void setup(){
                     
                     if (g_ujeta_lajna && !g_puk_roztrizen) {
                         g_lajny_bez_puku++;
-                        if (g_lajny_bez_puku >= 3) {
+                        if (g_lajny_bez_puku >= 2) {
                             g_zadost_o_srovnani = true;
                             g_lajny_bez_puku = 0;
                             Serial.println(">> Dlouho bez puku -> zadost o rychlou kalibraci");
@@ -549,7 +613,7 @@ void setup(){
                     aktualni_stav = STAT_READY;
                     if (g_ujeta_lajna && !g_puk_roztrizen) {
                         g_lajny_bez_puku++;
-                        if (g_lajny_bez_puku >= 3) {
+                        if (g_lajny_bez_puku >= 2) {
                             g_zadost_o_srovnani = true;
                             g_lajny_bez_puku = 0;
                             Serial.println(">> Dlouho bez puku -> zadost o rychlou kalibraci");
