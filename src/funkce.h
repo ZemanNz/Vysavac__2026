@@ -60,6 +60,7 @@ extern volatile bool g_puk_roztrizen;
 extern volatile bool g_zadost_o_srovnani;
 extern volatile int g_lajny_bez_puku;
 extern volatile int pocet_roz_p;
+extern volatile bool g_match_ended;
 
 char urci_barvu_puku(float &r, float &g, float &b) {
     // 1) Ochrana před falešnou detekcí na prázdno (hodnoty si bývají velmi blízké, např R:114, G:114, B:107)
@@ -80,8 +81,9 @@ char urci_barvu_puku(float &r, float &g, float &b) {
         return 'R';
     }
     
-    // Detekce modrého puku (B složka musí být dominantní s větší bariérou vůči R a G)
-    if (b > 95 && b > r + 20 && b > g + 12) {
+    // Detekce modrého puku (B složka musí být dominantní, nebo se jedná o specifický tmavě modrý puk)
+    if ((b > 95 && b > r + 20 && b > g + 12) || 
+        (r > 100 && r < 120 && g > 85 && g < 105 && b > 70 && b < 90)) {
         return 'B';
     }
     
@@ -112,6 +114,11 @@ void tridici_vlakno(void *pvParameters) {
     }
 
     while (true) {
+        if (g_match_ended) {
+            vypni_civky();
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
         // Přečtení hodnot ze senzoru přímo ve funkci
         if (rkColorSensorGetRGB("front", &r, &g, &b)) {
             // ROZHODOVÁNÍ O BARVĚ PROBÍHÁ POUZE JEDNOU:

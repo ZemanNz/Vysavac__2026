@@ -26,6 +26,7 @@ volatile bool g_zadost_o_srovnani = false;
 volatile int g_lajny_bez_puku = 0;
 volatile int pocet_roz_p = 0;
 volatile bool g_ujeta_lajna = false;
+volatile bool g_match_ended = false;
 Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
 
 // =============================================================================
@@ -282,6 +283,40 @@ void setup(){
             Serial.println(">> Trideni puku bylo SPUSTENO (resumed).");
         }
 
+        // --- MATCH TIME & LED CONTROL ---
+        bool emergency_return_active = false;
+        if (up_stisknuto) {
+            uint32_t elapsed = millis() - up_pressed_time;
+            if (elapsed > 60000) {
+                g_match_ended = true;
+            } else if (elapsed > 42000) {
+                emergency_return_active = true;
+            }
+        }
+
+        static uint32_t last_flash_time = 0;
+        static bool flash_state = false;
+
+        if (g_match_ended) {
+            rkMotorsSetPower(0, 0);
+            zastav_jizdu = true;
+
+            if (millis() - last_flash_time > 250) {
+                last_flash_time = millis();
+                flash_state = !flash_state;
+                rkLedAll(flash_state);
+            }
+        } else if (emergency_return_active) {
+            if (millis() - last_flash_time > 250) {
+                last_flash_time = millis();
+                flash_state = !flash_state;
+                rkLedGreen(flash_state);
+                rkLedRed(!flash_state);
+                rkLedYellow(false);
+                rkLedBlue(false);
+            }
+        }
+
         if (rb::Manager::get().buttons().on()) {
             Serial.println(">> ON stisknuto! Spoustim nekonecnou smycku cteni barvy...");
             while (true) {
@@ -304,11 +339,18 @@ void setup(){
 
         if (novy_prikaz) {
             novy_prikaz = false;
-            uint8_t cmd = aktivni_prikaz;
-            int16_t param = aktivni_param;
-            int16_t param2 = aktivni_param2;
+            if (g_match_ended) {
+                Serial.println(">> Zápas skončil! Ignoruji příkaz a posílám STAT_DONE.");
+                rkMotorsSetPower(0, 0);
+                aktualni_stav = STAT_DONE;
+                posli_stav();
+                aktualni_stav = STAT_READY;
+            } else {
+                uint8_t cmd = aktivni_prikaz;
+                int16_t param = aktivni_param;
+                int16_t param2 = aktivni_param2;
 
-            Serial.printf("\n========== PRIKAZ: %s  param=%d  param2=%d ==========\n", cmd_name(cmd), param, param2);
+                Serial.printf("\n========== PRIKAZ: %s  param=%d  param2=%d ==========\n", cmd_name(cmd), param, param2);
 
             switch (cmd) {
 
@@ -489,6 +531,7 @@ void setup(){
                     posli_stav();
                     aktualni_stav = STAT_READY;
                     break;
+            }
             }
         }
 
