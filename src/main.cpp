@@ -273,13 +273,33 @@ void setup(){
         if (!up_stisknuto && rb::Manager::get().buttons().up()) {
             up_stisknuto = true;
             up_pressed_time = millis();
-            Serial.println(">> UP stisknuto! Trideni bude spusteno za 3 sekundy.");
+            Serial.println(">> UP stisknuto! Trideni bude spusteno za 0.5 sekundy.");
         }
 
-        if (up_stisknuto && tridiciTaskHandle != NULL && (millis() - up_pressed_time > 3000)) {
+        if (up_stisknuto && tridiciTaskHandle != NULL && (millis() - up_pressed_time > 500)) {
             vTaskResume(tridiciTaskHandle);
             tridiciTaskHandle = NULL;
             Serial.println(">> Trideni puku bylo SPUSTENO (resumed).");
+        }
+
+        if (rb::Manager::get().buttons().on()) {
+            Serial.println(">> ON stisknuto! Spoustim nekonecnou smycku cteni barvy...");
+            while (true) {
+                float r = 0, g = 0, b = 0;
+                if (rkColorSensorGetRGB("front", &r, &g, &b)) {
+                    char barva = urci_barvu_puku(r, g, b);
+                    if (barva == 'R') {
+                        Serial.println(">> Poznali jsme, ze to je cerveny puk");
+                    } else if (barva == 'B') {
+                        Serial.println(">> Poznali jsme, ze to je modry puk");
+                    } else {
+                        Serial.println(">> Nevidime nic");
+                    }
+                } else {
+                    Serial.println(">> Chyba cteni ze senzoru barvy!");
+                }
+                delay(200);
+            }
         }
 
         if (novy_prikaz) {

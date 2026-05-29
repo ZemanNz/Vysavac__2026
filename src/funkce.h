@@ -76,7 +76,7 @@ char urci_barvu_puku(float &r, float &g, float &b) {
     }
 
     // Detekce červeného puku (vysoká R složka a R musí výrazně převyšovat ostatní)
-    if (r > 175 && r > g + 30 && r > b + 30) {
+    if (r > 185 && r > g + 30 && r > b + 30) {
         return 'R';
     }
     
