@@ -366,9 +366,12 @@ void setup(){
             Serial.println(">> RIGHT stisknuto! Nastavena CERVENA barva. Trideni bude spusteno za 0.5 sekundy.");
         }
 
-        if (up_stisknuto && tridiciTaskHandle != NULL && (millis() - up_pressed_time > 500)) {
-            vTaskResume(tridiciTaskHandle);
-            tridiciTaskHandle = NULL;
+        static bool tridici_task_resumed = false;
+        if (up_stisknuto && !tridici_task_resumed && (millis() - up_pressed_time > 500)) {
+            if (tridiciTaskHandle != NULL) {
+                vTaskResume(tridiciTaskHandle);
+            }
+            tridici_task_resumed = true;
             Serial.println(">> Trideni puku bylo SPUSTENO (resumed).");
         }
 
@@ -391,6 +394,19 @@ void setup(){
         if (g_match_ended) {
             rkMotorsSetPower(0, 0);
             zastav_jizdu = true;
+
+            static bool tridici_stopped_on_end = false;
+            if (!tridici_stopped_on_end) {
+                tridici_stopped_on_end = true;
+                Serial.println(">> Zapas skoncil: zastavuji tridici task a servo.");
+                if (tridiciTaskHandle != NULL) {
+                    vTaskDelete(tridiciTaskHandle);
+                    tridiciTaskHandle = NULL;
+                }
+                vypni_civky(); // Zastavi kontinualni servo S1
+                rkServosSetPosition(2, 0); // Vrati zarazku (servo S2) nahoru
+                rkServosDisable(2); // Vypne napajeni serva S2
+            }
 
             if (!final_beep_done) {
                 final_beep_done = true;
@@ -430,9 +446,11 @@ void setup(){
         if (rb::Manager::get().buttons().on()) {
             nase_barva = 'R';
             pocet_nasich_puku = 0;
-            if (tridiciTaskHandle != NULL) {
-                vTaskResume(tridiciTaskHandle);
-                tridiciTaskHandle = NULL;
+            if (!tridici_task_resumed) {
+                if (tridiciTaskHandle != NULL) {
+                    vTaskResume(tridiciTaskHandle);
+                }
+                tridici_task_resumed = true;
                 Serial.println(">> ON stisknuto! Spoustim plnohodnotne trideni (nase barva: CERVENA).");
             } else {
                 Serial.println(">> ON stisknuto! Tridici vlakno uz bezi. Resetuji pocet a nastavuji barvu na CERVENOU.");
