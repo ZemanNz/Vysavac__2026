@@ -444,18 +444,10 @@ void setup(){
         }
 
         if (rb::Manager::get().buttons().on()) {
-            nase_barva = 'R';
-            pocet_nasich_puku = 0;
-            if (!tridici_task_resumed) {
-                if (tridiciTaskHandle != NULL) {
-                    vTaskResume(tridiciTaskHandle);
-                }
-                tridici_task_resumed = true;
-                Serial.println(">> ON stisknuto! Spoustim plnohodnotne trideni (nase barva: CERVENA).");
-            } else {
-                Serial.println(">> ON stisknuto! Tridici vlakno uz bezi. Resetuji pocet a nastavuji barvu na CERVENOU.");
-            }
-            delay(500); // Debounce
+            Serial.println(">> ON stisknuto! Testuji nove otoceni o 120 stupnu se zpomalenim...");
+            otoc_motorem(120, false);
+            Serial.println(">> Test otoceni dokoncen.");
+            while (rb::Manager::get().buttons().on()) delay(10); // Cekej na uvolneni
         }
 
         if (novy_prikaz) {
@@ -652,7 +644,7 @@ void setup(){
             roztrid_puk(nase_barva);
             delay(200);
             
-            // 1) Přejedeme pozici o 40° po směru
+            // 1) Přejedeme pozici o 40° po směru (rychle)
             otoc_motorem(40, false);
             delay(50);
             
@@ -660,8 +652,8 @@ void setup(){
             rkServosSetPosition(2, 75);
             delay(150);
             
-            // 3) Otočíme se zpět proti směru o 170°, čímž narazíme na doraz a srovnáme se
-            otoc_motorem(170, true);
+            // 3) Otočíme se zpět proti směru o 170° nadoraz (pomalou rychlostí 20.0f, ať netřískne)
+            otoc_motorem(170, true, 20.0f);
             delay(50);
             
             // 4) Servo zvedneme nahoru
@@ -670,6 +662,14 @@ void setup(){
             
             Serial.println(">> Test nové rychlé kalibrace dokončen.");
             while(rb::Manager::get().buttons().down()) delay(10); // Čekej na uvolnění
+        }
+
+        // Test otáčení na druhou stranu na tlačítko UP
+        if (rb::Manager::get().buttons().up()) {
+            Serial.println(">> UP stisknuto! Testuji nove otoceni o 120 stupnu PROTI smeru...");
+            otoc_motorem(120, true);
+            Serial.println(">> Test otoceni PROTI smeru dokoncen.");
+            while (rb::Manager::get().buttons().up()) delay(10); // Čekej na uvolnění
         }
 
         delay(20);

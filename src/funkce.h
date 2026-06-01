@@ -137,7 +137,7 @@ void tridici_vlakno(void *pvParameters) {
                     if (pocet_nasich_puku % 2 == 0) {
                         Serial.println(">> Rychla kalibrace tridice po 2. nasem puku...");
                         
-                        // 1) Přejedeme pozici o 40° po směru, aby uvolnila prostor pro servo-stopku
+                        // 1) Přejedeme pozici o 40° po směru, aby uvolnila prostor pro servo-stopku (rychle)
                         otoc_motorem(40, false);
                         vTaskDelay(pdMS_TO_TICKS(50));
                         
@@ -145,8 +145,8 @@ void tridici_vlakno(void *pvParameters) {
                         rkServosSetPosition(2, 75);
                         vTaskDelay(pdMS_TO_TICKS(150));
                         
-                        // 3) Otočíme se zpět proti směru o 170°, čímž narazíme na doraz a srovnáme se
-                        otoc_motorem(170, true);
+                        // 3) Otočíme se zpět proti směru o 170° nadoraz (pomalou rychlostí 20.0f, ať netřískne)
+                        otoc_motorem(170, true, 20.0f);
                         vTaskDelay(pdMS_TO_TICKS(50));
                         
                         // 4) Servo zvedneme nahoru
@@ -174,7 +174,7 @@ void tridici_vlakno(void *pvParameters) {
 
             Serial.println(">> Rychla kalibrace na zadost (dlouho bez puku)...");
             
-            // 1) Otočení o 160° po směru (ze základní pozice do přetočené)
+            // 1) Otočení o 160° po směru (rychle)
             otoc_motorem(160, false);
             vTaskDelay(pdMS_TO_TICKS(50));
             
@@ -182,8 +182,8 @@ void tridici_vlakno(void *pvParameters) {
             rkServosSetPosition(2, 75);
             vTaskDelay(pdMS_TO_TICKS(150));
             
-            // 3) Otočení se zpět proti směru o 170° nadoraz
-            otoc_motorem(170, true);
+            // 3) Otočení se zpět proti směru o 170° nadoraz (pomalou rychlostí 20.0f, ať netřískne)
+            otoc_motorem(170, true, 20.0f);
             vTaskDelay(pdMS_TO_TICKS(50));
             
             // 4) Servo zvedneme nahoru

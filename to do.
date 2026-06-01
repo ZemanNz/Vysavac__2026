@@ -58,10 +58,8 @@ udelat funkce pro ovladani na dalku (s,w,a,d), (<>)
 - pridat gyroskop kazdou- udelat to startovani....  a finalni verzi....  -- done
 - udelat finalni verzi kodu---starty atd.... -- done
 - bacha na to otaceni!!! --- done
+- vylepsit trididlo...
 
 - udelat readme
 - zalepit vsechny kabely
 - ultrazvuky bocni souper
-
-
--nic neupravuj jen popis cim to je a navrhni resení:  potrebuji osefovat jeden problem -> pri otaceni tak pokud je treba blizko robota, nebo v rohu u zdi, tak je problem ze se neotoci o 90 stupnu...... problem je ze se otacime podle uhlu z lidaru.... a kdyz jsme blizko neceho, tak se to casto otoci o 180 stupnu ..... 
