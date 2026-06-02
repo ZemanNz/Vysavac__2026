@@ -8,35 +8,20 @@ Tento dokument slouží jako kompletní návod k obsluze, checklist před starte
 
 Před každým spuštěním robota na dráze je nutné provést následující kroky. Zanedbání kteréhokoli bodu může vést k chybě v navigaci, nepřesnému třídění puků nebo fyzickému poškození robota.
 
-### 1. 🎯 Srovnání a kalibrace třídiče (Kritický krok!)
-* **Proč:** Kontinuální servo třídiče nemá absolutní zpětnou vazbu a počítá polohu pouze numerickou integrací času a rychlosti. Před každým startem se musí kalibrovat jeho výchozí nulová poloha.
-* **Postup:** 
-  1. Před spuštěním jízdy (když svítí žlutá LED a stav je `READY`) stiskněte tlačítko **DOWN** na RBCX desce.
-  2. Sledujte průběh kalibrace:
-     * Servo `S1` nejprve rychle otočí třídičem o **40° po směru** hodinových ručiček, aby uvolnilo prostor pro doraz.
-     * Dorazové servo `S2` (stupňové) se sklopí dolů (poloha `75`).
-     * Servo `S1` se začne pomalu vracet o **170° proti směru** rychlostí `20.0f`, dokud se jemně neopře o doraz.
-     * Dorazové servo `S2` se zvedne zpět nahoru (poloha `0`).
-  3. Po dokončení je třídič mechanicky srovnán a připraven.
+### 1. 🎯 Srovnání a kalibrace třídiče
+* **Postup:** Srovnání třídiče uděláme rukou před každým startem.
 
 ### 2. 🌀 Kalibrace gyroskopu (MPU)
 * **Požadavek:** Při zapnutí robota nebo při stisku tlačítka **RST** (Reset) na desce RBCX musí robot stát **naprosto v klidu**.
 * **Signalizace:** Během kalibrace gyroskopu žlutá LED dioda pětkrát rychle zabliká. 
 * **Princip:** Program změří 100 vzorků úhlové rychlosti v klidu, vypočte zbytkový drift (`g_gyro_z_offset`) a následně ho za jízdy průběžně odečítá pro eliminaci akumulované chyby při zatáčení. Pokud se robotem během kalibrace pohne, gyroskop se zkalibruje špatně a robot bude zatáčet nepřesně!
 
-### 3. 🔌 Kontrola kabelů a USB připojení
-* > [!WARNING]
-  > ### ⚠️ Nebezpečí poškození kabelů!
-  > * **LiDAR a otočné části:** Ujistěte se, že žádný z propojovacích kabelů k LiDARu, motorům nebo servům nezasahuje do dráhy rotujícího třídiče nebo kol. Volné kabely se mohou namotat a přetrhnout.
-  > * **USB Kabel:** Při programování nebo testování na stole **vždy odpojte USB kabel před spuštěním jízdy**. Pokud se robot rozjede s připojeným kabelem, hrozí vytržení microUSB konektoru z RBCX desky nebo stržení robota ze stolu.
-
-### 4. 🔋 Baterie
+### 3. 🔋 Baterie
 * **Pracovní rozsah:** Baterie by se měla pohybovat v rozmezí **7.0 V až 8.8 V (7000 mV – 8800 mV)**.
 * **Kontrola:** Při spuštění a následně každou vteřinu vypisuje robot stav baterie na sériový monitor. Nenechávejte baterii klesnout pod 7.0 V, jinak hrozí nestabilita procesoru ESP32 při zátěži motorů.
 
-### 5. 🧼 Očista kol
-* **Pravidlo:** Před **každou** soutěžní jízdou očistěte obě hnací kola od prachu a mastnoty (např. isopropylalkoholem nebo lepicí páskou).
-* **Vliv:** Prokluzování kol znehodnocuje odometrické výpočty, což ztěžuje LiDARu korigovat dráhu robota.
+### 4. 🧼 Očista kol
+* **Pravidlo:** Před **každou** soutěžní jízdou očistěte obě hnací kola jen mokrým hadrem.
 
 ---
 
@@ -51,9 +36,6 @@ Po inicializaci a úspěšné kalibraci gyroskopu svítí **žlutá LED** (stav 
 | **`BTN_DOWN`** | **Mechanická kalibrace** | **Pouze ve stavu READY:** Spustí výše popsanou kalibraci a srovnání třídicí klapky proti mechanické stopce. |
 | **`BTN_ON`**   | **Test otočení PO směru** | Spustí testovací otočení kontinuálního serva `S1` o **120° po směru** s využitím brzdné rampy. Slouží k ověření přesnosti koeficientu `12.5f` (ON). |
 | **`BTN_UP`**   | **Test otočení PROTI směru** | Spustí testovací otočení kontinuálního serva `S1` o **120° proti směru** s využitím brzdné rampy. Slouží k ověření přesnosti koeficientu `13.4f` (UP). |
-
-> [!NOTE]
-> **Modrá LED dioda** na robotu je nefunkční. Při startu modré strategie se programově aktivuje pin pro modrou LED, ale dioda se fyzicky nerozsvítí.
 
 ---
 
